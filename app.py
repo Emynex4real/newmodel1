@@ -277,17 +277,20 @@ def train_placement_model():
         olevels = {sub: np.random.choice(list(grade_map.values())) for sub in selected_subs}
         interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, 5), replace=False).tolist()
         learning = np.random.choice(list(learning_styles.keys()))
+        state = np.random.choice(NIGERIAN_STATES)  # Added for diversity_score
+        gender = np.random.choice(["Male", "Female", "Other"])  # Added for diversity_score
         
         for course in course_names:
             eligible = is_eligible(olevels, course, parsed_req) and utme >= cutoff_marks[course]
             score = 0
             interest_weight = 0
+            diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0  # Added
             if eligible:
                 grade_sum, count = compute_grade_sum(olevels, course, parsed_req)
                 interest_weight = sum(1 for int_ in interests if course in interest_categories.get(int_, [])) * 0.3
                 if learning in learning_styles and course in learning_styles[learning]:
                     interest_weight += 0.2
-                score = compute_enhanced_score(utme, grade_sum, count, interest_weight)
+                score = compute_enhanced_score(utme, grade_sum, count, interest_weight, diversity_score)
             
             features = {'utme': utme}
             for sub in common_subjects:
@@ -296,6 +299,7 @@ def train_placement_model():
                 features[int_] = 1 if int_ in interests else 0
             for ls in learning_styles.keys():
                 features[f'ls_{ls}'] = 1 if learning == ls else 0
+            features['diversity_score'] = diversity_score  # Added to features for consistency
             features['score'] = score
             features['course'] = course
             data.append(features)
@@ -494,6 +498,7 @@ def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, 
             features[f'ls_{ls}'] = 1 if learning_style == ls else 0
         for c in course_names:
             features[f'course_{c}'] = 1 if c == course else 0
+        features['diversity_score'] = diversity_score  # Added to features for consistency
         features_df = pd.DataFrame([features])
         X_scaled = scaler.transform(features_df)
         score = model.predict(X_scaled)[0]
