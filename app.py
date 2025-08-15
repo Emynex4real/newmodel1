@@ -199,6 +199,9 @@ def load_course_data():
 
 common_subjects, grade_map, course_names, course_groups, cutoff_marks, course_details, interest_categories, learning_styles = load_course_data()
 
+# Store feature names globally for consistency
+FEATURE_NAMES = None
+
 def get_course_requirements():
     """Return detailed course requirements for all courses"""
     requirements = {
@@ -260,6 +263,7 @@ def get_course_requirements():
 @st.cache_resource
 def train_placement_model():
     """Train a lightweight ML model for placement prediction"""
+    global FEATURE_NAMES
     logger.info("Starting placement model training")
     try:
         parsed_req = get_course_requirements()
@@ -296,7 +300,6 @@ def train_placement_model():
                 for ls in learning_styles.keys():
                     features[f'ls_{ls}'] = 1 if learning == ls else 0
                 features['diversity_score'] = diversity_score
-                features['score'] = score
                 features['course'] = course
                 data.append(features)
         
@@ -305,6 +308,9 @@ def train_placement_model():
         df = pd.get_dummies(df, columns=['course'])
         X = df.drop('score', axis=1)
         y = df['score']
+        
+        # Store feature names for prediction
+        FEATURE_NAMES = X.columns.tolist()
         
         logger.info("Splitting data for training")
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -477,8 +483,12 @@ def compute_enhanced_score(utme_score, grade_sum, count, course_weight, diversit
 
 def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, learning_style, state, gender):
     """Predict placement using ML model"""
+    global FEATURE_NAMES
     try:
         model, scaler = train_placement_model()
+        if FEATURE_NAMES is None:
+            raise ValueError("Feature names not initialized. Please ensure model training is complete.")
+        
         parsed_req = get_course_requirements()
         results = []
         for course in course_names:
@@ -487,6 +497,8 @@ def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, 
             if learning_style in learning_styles and course in learning_styles[learning_style]:
                 interest_weight += 0.2
             diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
+            
+            # Create feature dictionary
             features = {'utme': utme_score}
             for sub in common_subjects:
                 features[sub] = olevel_subjects.get(sub, 9)
@@ -494,15 +506,25 @@ def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, 
                 features[int_] = 1 if int_ in selected_interests else 0
             for ls in learning_styles.keys():
                 features[f'ls_{ls}'] = 1 if learning_style == ls else 0
+            features['diversity_score'] = diversity_score
             for c in course_names:
                 features[f'course_{c}'] = 1 if c == course else 0
-            features['diversity_score'] = diversity_score
+            
+            # Ensure feature alignment
             features_df = pd.DataFrame([features])
+            # Add missing features with default value 0
+            for feature in FEATURE_NAMES:
+                if feature not in features_df.columns:
+                    features_df[feature] = 0
+            # Drop extra features not in training
+            features_df = features_df[FEATURE_NAMES]
+            
             X_scaled = scaler.transform(features_df)
             score = model.predict(X_scaled)[0]
             if eligible:
                 grade_sum, count = compute_grade_sum(olevel_subjects, course, parsed_req)
                 score = compute_enhanced_score(utme_score, grade_sum, count, interest_weight, diversity_score)
+            
             results.append({
                 "course": course,
                 "eligible": eligible,
@@ -510,6 +532,7 @@ def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, 
                 "interest_weight": interest_weight,
                 "diversity_score": diversity_score
             })
+        
         results_df = pd.DataFrame(results)
         eligible_courses = results_df[results_df["eligible"] & (results_df["score"] > 0)]
         if eligible_courses.empty:
