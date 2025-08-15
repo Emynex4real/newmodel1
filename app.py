@@ -15,36 +15,6 @@ st.set_page_config(
 )
 
 @st.cache_data
-def safe_load_data():
-    """Safely load data with error handling"""
-    try:
-        return load_course_data()
-    except Exception as e:
-        st.error(f"Error loading course data: {str(e)}")
-        return None, None, None, None, None
-
-# Title and description
-st.title("🎓 Intelligent Course Recommender System")
-st.markdown(
-    "**Predict your best course match based on UTME scores and O'Level results**"
-)
-
-# Initialize session state
-if "prediction_made" not in st.session_state:
-    st.session_state.prediction_made = False
-
-try:
-    data_result = safe_load_data()
-    if data_result[0] is not None:
-        common_subjects, grade_map, course_names, course_groups, cutoff_marks = data_result
-    else:
-        st.stop()
-except Exception as e:
-    st.error(f"Failed to initialize application: {str(e)}")
-    st.stop()
-
-# Define constants and data structures
-@st.cache_data
 def load_course_data():
     """Load and return all course-related data"""
 
@@ -237,6 +207,37 @@ def load_course_data():
 
     return common_subjects, grade_map, course_names, course_groups, cutoff_marks
 
+@st.cache_data
+def safe_load_data():
+    """Safely load data with error handling"""
+    try:
+        return load_course_data()
+    except Exception as e:
+        st.error(f"Error loading course data: {str(e)}")
+        return None, None, None, None, None
+
+# Title and description
+st.title("🎓 Intelligent Course Recommender System")
+st.markdown(
+    "**Predict your best course match based on UTME scores and O'Level results**"
+)
+
+# Initialize session state
+if "prediction_made" not in st.session_state:
+    st.session_state.prediction_made = False
+
+try:
+    data_result = safe_load_data()
+    if data_result[0] is not None:
+        common_subjects, grade_map, course_names, course_groups, cutoff_marks = data_result
+    else:
+        st.stop()
+except Exception as e:
+    st.error(f"Failed to initialize application: {str(e)}")
+    st.stop()
+
+# Define constants and data structures
+# load_course_data function definition moved above
 
 # Course requirements (simplified version for demo)
 @st.cache_data
