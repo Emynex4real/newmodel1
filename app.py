@@ -8,7 +8,7 @@ from collections import defaultdict
 import json
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import io
 import base64
@@ -68,7 +68,6 @@ def load_course_data():
     """Load and return all course-related data"""
     logger.info("Loading course data")
     
-    # Common O'Level subjects
     common_subjects = [
         "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
         "Agricultural Science", "Geography", "Economics", "Further Mathematics",
@@ -77,12 +76,10 @@ def load_course_data():
         "CRK", "IRK", "Social Studies"
     ]
 
-    # Grade mapping
     grade_map = {
         "A1": 1, "B2": 2, "B3": 3, "C4": 4, "C5": 5, "C6": 6, "D7": 7, "E8": 8, "F9": 9
     }
 
-    # Course names
     course_names = [
         "Agric Extension & Communication Technology", "Agricultural Engineering",
         "Agriculture Resource Economics", "Animal Production & Health Services",
@@ -160,7 +157,6 @@ def load_course_data():
             "job_outlook": "Excellent",
             "skills_developed": ["Critical Thinking", "Scientific Analysis", "Research"]
         }
-        # Add more course details as needed
     }
 
     interest_categories = {
@@ -181,7 +177,6 @@ def load_course_data():
         "People-oriented": ["Human Anatomy", "Entrepreneurship", "Agric Extension & Communication Technology", "Estate Management"]
     }
 
-    # UTME cutoff marks
     cutoff_marks = {
         "Human Anatomy": 250,
         "Medical Laboratory Science": 250,
@@ -249,7 +244,6 @@ def get_course_requirements():
             "thresholds": {},
             "required_credit_count": 5,
         },
-        # Add requirements for other courses
     }
     default_req = {
         "mandatory": ["English Language", "Mathematics"],
@@ -265,70 +259,73 @@ def get_course_requirements():
 
 @st.cache_resource
 def train_placement_model():
-    """Train ML model with hyperparameter tuning"""
-    logger.info("Training placement model")
-    parsed_req = get_course_requirements()
-    data = []
-    
-    for _ in range(10000):  # Increased synthetic data
-        utme = np.random.randint(100, 400)
-        num_subjects = np.random.randint(5, 10)
-        selected_subs = np.random.choice(common_subjects, num_subjects, replace=False)
-        olevels = {sub: np.random.choice(list(grade_map.values())) for sub in selected_subs}
-        interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, 5), replace=False).tolist()
-        learning = np.random.choice(list(learning_styles.keys()))
-        state = np.random.choice(NIGERIAN_STATES)  # Added for diversity_score
-        gender = np.random.choice(["Male", "Female", "Other"])  # Added for diversity_score
+    """Train a lightweight ML model for placement prediction"""
+    logger.info("Starting placement model training")
+    try:
+        parsed_req = get_course_requirements()
+        data = []
         
-        for course in course_names:
-            eligible = is_eligible(olevels, course, parsed_req) and utme >= cutoff_marks[course]
-            score = 0
-            interest_weight = 0
-            diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0  # Added
-            if eligible:
-                grade_sum, count = compute_grade_sum(olevels, course, parsed_req)
-                interest_weight = sum(1 for int_ in interests if course in interest_categories.get(int_, [])) * 0.3
-                if learning in learning_styles and course in learning_styles[learning]:
-                    interest_weight += 0.2
-                score = compute_enhanced_score(utme, grade_sum, count, interest_weight, diversity_score)
+        # Minimal dataset size for Streamlit Cloud
+        for _ in range(500):  # Reduced to 500 for faster training
+            utme = np.random.randint(100, 400)
+            num_subjects = np.random.randint(5, 10)
+            selected_subs = np.random.choice(common_subjects, num_subjects, replace=False)
+            olevels = {sub: np.random.choice(list(grade_map.values())) for sub in selected_subs}
+            interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, 5), replace=False).tolist()
+            learning = np.random.choice(list(learning_styles.keys()))
+            state = np.random.choice(NIGERIAN_STATES)
+            gender = np.random.choice(["Male", "Female", "Other"])
             
-            features = {'utme': utme}
-            for sub in common_subjects:
-                features[sub] = olevels.get(sub, 9)
-            for int_ in interest_categories.keys():
-                features[int_] = 1 if int_ in interests else 0
-            for ls in learning_styles.keys():
-                features[f'ls_{ls}'] = 1 if learning == ls else 0
-            features['diversity_score'] = diversity_score  # Added to features for consistency
-            features['score'] = score
-            features['course'] = course
-            data.append(features)
+            for course in course_names:
+                eligible = is_eligible(olevels, course, parsed_req) and utme >= cutoff_marks[course]
+                score = 0
+                interest_weight = 0
+                diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
+                if eligible:
+                    grade_sum, count = compute_grade_sum(olevels, course, parsed_req)
+                    interest_weight = sum(1 for int_ in interests if course in interest_categories.get(int_, [])) * 0.3
+                    if learning in learning_styles and course in learning_styles[learning]:
+                        interest_weight += 0.2
+                    score = compute_enhanced_score(utme, grade_sum, count, interest_weight, diversity_score)
+                
+                features = {'utme': utme}
+                for sub in common_subjects:
+                    features[sub] = olevels.get(sub, 9)
+                for int_ in interest_categories.keys():
+                    features[int_] = 1 if int_ in interests else 0
+                for ls in learning_styles.keys():
+                    features[f'ls_{ls}'] = 1 if learning == ls else 0
+                features['diversity_score'] = diversity_score
+                features['score'] = score
+                features['course'] = course
+                data.append(features)
+        
+        logger.info("Synthetic data generation complete")
+        df = pd.DataFrame(data)
+        df = pd.get_dummies(df, columns=['course'])
+        X = df.drop('score', axis=1)
+        y = df['score']
+        
+        logger.info("Splitting data for training")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        
+        # Simple model without GridSearchCV for speed
+        model = RandomForestRegressor(n_estimators=50, max_depth=10, random_state=42, n_jobs=-1)
+        model.fit(X_train_scaled, y_train)
+        
+        X_test_scaled = scaler.transform(X_test)
+        y_pred = model.predict(X_test_scaled)
+        mse = mean_squared_error(y_test, y_pred)
+        logger.info(f"Model trained successfully with MSE: {mse:.4f}")
+        
+        return model, scaler
     
-    df = pd.DataFrame(data)
-    df = pd.get_dummies(df, columns=['course'])
-    X = df.drop('score', axis=1)
-    y = df['score']
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    
-    param_grid = {
-        'n_estimators': [100, 200],
-        'max_depth': [10, 20, None],
-        'min_samples_split': [2, 5]
-    }
-    model = RandomForestRegressor(random_state=42, n_jobs=-1)
-    grid_search = GridSearchCV(model, param_grid, cv=5, scoring='neg_mean_squared_error', n_jobs=-1)
-    grid_search.fit(X_train_scaled, y_train)
-    
-    best_model = grid_search.best_estimator_
-    X_test_scaled = scaler.transform(X_test)
-    y_pred = best_model.predict(X_test_scaled)
-    mse = mean_squared_error(y_test, y_pred)
-    logger.info(f"Model trained with MSE: {mse:.4f}, Best Params: {grid_search.best_params_}")
-    
-    return best_model, scaler
+    except Exception as e:
+        logger.error(f"Error during model training: {str(e)}")
+        st.error(f"Failed to train model: {str(e)}")
+        raise
 
 def get_dynamic_course_capacities(df):
     """Dynamically adjust course capacities based on demand"""
@@ -480,55 +477,65 @@ def compute_enhanced_score(utme_score, grade_sum, count, course_weight, diversit
 
 def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, learning_style, state, gender):
     """Predict placement using ML model"""
-    model, scaler = train_placement_model()
-    parsed_req = get_course_requirements()
-    results = []
-    for course in course_names:
-        eligible = is_eligible(olevel_subjects, course, parsed_req) and utme_score >= cutoff_marks[course]
-        interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_, [])) * 0.3
-        if learning_style in learning_styles and course in learning_styles[learning_style]:
-            interest_weight += 0.2
-        diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
-        features = {'utme': utme_score}
-        for sub in common_subjects:
-            features[sub] = olevel_subjects.get(sub, 9)
-        for int_ in interest_categories.keys():
-            features[int_] = 1 if int_ in selected_interests else 0
-        for ls in learning_styles.keys():
-            features[f'ls_{ls}'] = 1 if learning_style == ls else 0
-        for c in course_names:
-            features[f'course_{c}'] = 1 if c == course else 0
-        features['diversity_score'] = diversity_score  # Added to features for consistency
-        features_df = pd.DataFrame([features])
-        X_scaled = scaler.transform(features_df)
-        score = model.predict(X_scaled)[0]
-        if eligible:
-            grade_sum, count = compute_grade_sum(olevel_subjects, course, parsed_req)
-            score = compute_enhanced_score(utme_score, grade_sum, count, interest_weight, diversity_score)
-        results.append({
-            "course": course,
-            "eligible": eligible,
-            "score": score,
-            "interest_weight": interest_weight,
-            "diversity_score": diversity_score
-        })
-    results_df = pd.DataFrame(results)
-    eligible_courses = results_df[results_df["eligible"] & (results_df["score"] > 0)]
-    if eligible_courses.empty:
+    try:
+        model, scaler = train_placement_model()
+        parsed_req = get_course_requirements()
+        results = []
+        for course in course_names:
+            eligible = is_eligible(olevel_subjects, course, parsed_req) and utme_score >= cutoff_marks[course]
+            interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_, [])) * 0.3
+            if learning_style in learning_styles and course in learning_styles[learning_style]:
+                interest_weight += 0.2
+            diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
+            features = {'utme': utme_score}
+            for sub in common_subjects:
+                features[sub] = olevel_subjects.get(sub, 9)
+            for int_ in interest_categories.keys():
+                features[int_] = 1 if int_ in selected_interests else 0
+            for ls in learning_styles.keys():
+                features[f'ls_{ls}'] = 1 if learning_style == ls else 0
+            for c in course_names:
+                features[f'course_{c}'] = 1 if c == course else 0
+            features['diversity_score'] = diversity_score
+            features_df = pd.DataFrame([features])
+            X_scaled = scaler.transform(features_df)
+            score = model.predict(X_scaled)[0]
+            if eligible:
+                grade_sum, count = compute_grade_sum(olevel_subjects, course, parsed_req)
+                score = compute_enhanced_score(utme_score, grade_sum, count, interest_weight, diversity_score)
+            results.append({
+                "course": course,
+                "eligible": eligible,
+                "score": score,
+                "interest_weight": interest_weight,
+                "diversity_score": diversity_score
+            })
+        results_df = pd.DataFrame(results)
+        eligible_courses = results_df[results_df["eligible"] & (results_df["score"] > 0)]
+        if eligible_courses.empty:
+            return {
+                "predicted_program": "UNASSIGNED",
+                "score": 0,
+                "reason": "No eligible course found",
+                "all_eligible": pd.DataFrame()
+            }
+        best_course = eligible_courses.loc[eligible_courses["score"].idxmax()]
+        return {
+            "predicted_program": best_course["course"],
+            "score": best_course["score"],
+            "reason": "Best match based on ML prediction",
+            "all_eligible": eligible_courses.sort_values("score", ascending=False),
+            "interest_alignment": best_course["interest_weight"] > 0
+        }
+    except Exception as e:
+        logger.error(f"Error in predict_placement_enhanced: {str(e)}")
+        st.error(f"Prediction failed: {str(e)}")
         return {
             "predicted_program": "UNASSIGNED",
             "score": 0,
-            "reason": "No eligible course found",
+            "reason": f"Prediction failed due to error: {str(e)}",
             "all_eligible": pd.DataFrame()
         }
-    best_course = eligible_courses.loc[eligible_courses["score"].idxmax()]
-    return {
-        "predicted_program": best_course["course"],
-        "score": best_course["score"],
-        "reason": "Best match based on ML prediction",
-        "all_eligible": eligible_courses.sort_values("score", ascending=False),
-        "interest_alignment": best_course["interest_weight"] > 0
-    }
 
 def validate_csv(df):
     """Validate CSV input data"""
@@ -556,29 +563,34 @@ def validate_csv(df):
 def process_csv_applications(df, course_capacities):
     """Process batch applications with validation"""
     logger.info("Processing CSV applications")
-    if not validate_csv(df):
+    try:
+        if not validate_csv(df):
+            return []
+        processed_students = []
+        for idx, row in df.iterrows():
+            student_data = {
+                'student_id': str(row.get('student_id', f'STU_{idx:04d}')),
+                'name': str(row.get('name', f'Student_{idx}')),
+                'utme_score': float(row.get('utme_score', 0)),
+                'preferred_course': str(row.get('preferred_course', '')),
+                'interests': str(row.get('interests', '')).split(',') if pd.notna(row.get('interests')) else [],
+                'learning_style': str(row.get('learning_style', 'Analytical Thinker')),
+                'olevel_subjects': {},
+                'state_of_origin': str(row.get('state_of_origin', '')),
+                'gender': str(row.get('gender', '')),
+                'age': int(row.get('age', 18))
+            }
+            for subject in common_subjects:
+                grade_col = f"{subject.lower().replace(' ', '_').replace('/', '_')}_grade"
+                if grade_col in row and pd.notna(row[grade_col]):
+                    student_data['olevel_subjects'][subject] = grade_map.get(str(row[grade_col]), 9)
+            processed_students.append(student_data)
+        admission_results = run_intelligent_admission_algorithm_v2(processed_students, course_capacities)
+        return admission_results
+    except Exception as e:
+        logger.error(f"Error in process_csv_applications: {str(e)}")
+        st.error(f"Failed to process CSV: {str(e)}")
         return []
-    processed_students = []
-    for idx, row in df.iterrows():
-        student_data = {
-            'student_id': str(row.get('student_id', f'STU_{idx:04d}')),
-            'name': str(row.get('name', f'Student_{idx}')),
-            'utme_score': float(row.get('utme_score', 0)),
-            'preferred_course': str(row.get('preferred_course', '')),
-            'interests': str(row.get('interests', '')).split(',') if pd.notna(row.get('interests')) else [],
-            'learning_style': str(row.get('learning_style', 'Analytical Thinker')),
-            'olevel_subjects': {},
-            'state_of_origin': str(row.get('state_of_origin', '')),
-            'gender': str(row.get('gender', '')),
-            'age': int(row.get('age', 18))
-        }
-        for subject in common_subjects:
-            grade_col = f"{subject.lower().replace(' ', '_').replace('/', '_')}_grade"
-            if grade_col in row and pd.notna(row[grade_col]):
-                student_data['olevel_subjects'][subject] = grade_map.get(str(row[grade_col]), 9)
-        processed_students.append(student_data)
-    admission_results = run_intelligent_admission_algorithm_v2(processed_students, course_capacities)
-    return admission_results
 
 def calculate_comprehensive_score(student, course, base_score):
     """Calculate comprehensive score with diversity"""
@@ -683,89 +695,58 @@ def generate_alternative_reason(preferred_course, alternative_course, similarity
 def run_intelligent_admission_algorithm_v2(students, course_capacities):
     """Advanced admission algorithm with diversity and tie-breaking"""
     logger.info("Running intelligent admission algorithm")
-    results = []
-    course_admission_counts = {course: 0 for course in course_capacities}
-    student_course_matrix = []
-    
-    for student in students:
-        student_row = {'student_id': student['student_id'], 'student_data': student}
-        prediction = predict_placement_enhanced(
-            student['utme_score'],
-            student['olevel_subjects'],
-            student['interests'],
-            student['learning_style'],
-            student['state_of_origin'],
-            student['gender']
-        )
+    try:
+        results = []
+        course_admission_counts = {course: 0 for course in course_capacities}
+        student_course_matrix = []
+        
+        for student in students:
+            student_row = {'student_id': student['student_id'], 'student_data': student}
+            prediction = predict_placement_enhanced(
+                student['utme_score'],
+                student['olevel_subjects'],
+                student['interests'],
+                student['learning_style'],
+                student['state_of_origin'],
+                student['gender']
+            )
+            for course in course_names:
+                base_score = 0
+                eligible = False
+                if 'all_eligible' in prediction and not prediction['all_eligible'].empty:
+                    course_match = prediction['all_eligible'][prediction['all_eligible']['course'] == course]
+                    if not course_match.empty:
+                        base_score = course_match.iloc[0]['score']
+                        eligible = True
+                if eligible:
+                    comprehensive_score = calculate_comprehensive_score(student, course, base_score)
+                    if course == student['preferred_course']:
+                        comprehensive_score *= 1.15
+                    student_row[course] = {
+                        'score': comprehensive_score,
+                        'eligible': True,
+                        'base_score': base_score
+                    }
+                else:
+                    student_row[course] = {
+                        'score': 0,
+                        'eligible': False,
+                        'base_score': 0
+                    }
+            student_course_matrix.append(student_row)
+        
+        admitted_students = set()
+        
+        # Phase 1: Preferred course admission with tie-breaking
         for course in course_names:
-            base_score = 0
-            eligible = False
-            if 'all_eligible' in prediction and not prediction['all_eligible'].empty:
-                course_match = prediction['all_eligible'][prediction['all_eligible']['course'] == course]
-                if not course_match.empty:
-                    base_score = course_match.iloc[0]['score']
-                    eligible = True
-            if eligible:
-                comprehensive_score = calculate_comprehensive_score(student, course, base_score)
-                if course == student['preferred_course']:
-                    comprehensive_score *= 1.15
-                student_row[course] = {
-                    'score': comprehensive_score,
-                    'eligible': True,
-                    'base_score': base_score
-                }
-            else:
-                student_row[course] = {
-                    'score': 0,
-                    'eligible': False,
-                    'base_score': 0
-                }
-        student_course_matrix.append(student_row)
-    
-    admitted_students = set()
-    
-    # Phase 1: Preferred course admission with tie-breaking
-    for course in course_names:
-        if course not in course_capacities:
-            continue
-        capacity = course_capacities[course]
-        candidates = []
-        for student_row in student_course_matrix:
-            student_id = student_row['student_id']
-            student_data = student_row['student_data']
-            if student_id not in admitted_students and student_row[course]['eligible'] and student_data['preferred_course'] == course:
-                olevel_avg = sum(student_data['olevel_subjects'].values()) / len(student_data['olevel_subjects']) if student_data['olevel_subjects'] else 9
-                candidates.append({
-                    'student_id': student_id,
-                    'student_data': student_data,
-                    'score': student_row[course]['score'],
-                    'olevel_avg': olevel_avg,  # For tie-breaking
-                    'course': course
-                })
-        candidates.sort(key=lambda x: (x['score'], -x['olevel_avg']), reverse=True)
-        for i, candidate in enumerate(candidates[:capacity - course_admission_counts[course]]):
-            results.append({
-                'student_id': candidate['student_id'],
-                'admitted_course': course,
-                'status': 'ADMITTED',
-                'score': candidate['score'],
-                'rank': course_admission_counts[course] + i + 1,
-                'admission_type': 'PREFERRED'
-            })
-            admitted_students.add(candidate['student_id'])
-            course_admission_counts[course] += 1
-    
-    # Phase 2: Merit-based admission
-    for course in course_names:
-        if course not in course_capacities:
-            continue
-        remaining = course_capacities[course] - course_admission_counts[course]
-        if remaining > 0:
+            if course not in course_capacities:
+                continue
+            capacity = course_capacities[course]
             candidates = []
             for student_row in student_course_matrix:
                 student_id = student_row['student_id']
                 student_data = student_row['student_data']
-                if student_id not in admitted_students and student_row[course]['eligible']:
+                if student_id not in admitted_students and student_row[course]['eligible'] and student_data['preferred_course'] == course:
                     olevel_avg = sum(student_data['olevel_subjects'].values()) / len(student_data['olevel_subjects']) if student_data['olevel_subjects'] else 9
                     candidates.append({
                         'student_id': student_id,
@@ -775,69 +756,105 @@ def run_intelligent_admission_algorithm_v2(students, course_capacities):
                         'course': course
                     })
             candidates.sort(key=lambda x: (x['score'], -x['olevel_avg']), reverse=True)
-            for i, candidate in enumerate(candidates[:remaining]):
+            for i, candidate in enumerate(candidates[:capacity - course_admission_counts[course]]):
                 results.append({
                     'student_id': candidate['student_id'],
                     'admitted_course': course,
                     'status': 'ADMITTED',
                     'score': candidate['score'],
                     'rank': course_admission_counts[course] + i + 1,
-                    'admission_type': 'MERIT'
+                    'admission_type': 'PREFERRED'
                 })
                 admitted_students.add(candidate['student_id'])
                 course_admission_counts[course] += 1
-    
-    # Phase 3: Alternative admissions and waitlisting
-    remaining_students = []
-    for student_row in student_course_matrix:
-        student_id = student_row['student_id']
-        student_data = student_row['student_data']
-        if student_id not in admitted_students:
-            max_alt_score = max([student_row[course]['score'] for course in course_names if student_row[course]['eligible'] and course != student_data['preferred_course']] or [0])
-            remaining_students.append((student_row, student_data, max_alt_score))
-    remaining_students.sort(key=lambda x: x[2], reverse=True)
-    
-    for student_row, student_data, _ in remaining_students:
-        student_id = student_data['student_id']
-        if student_id not in admitted_students:
-            smart_alternatives = find_smart_alternatives(
-                student_data, student_course_matrix, course_capacities, course_admission_counts
-            )
-            admitted = False
-            for alternative in smart_alternatives:
-                course = alternative['course']
-                if course_admission_counts.get(course, 0) < course_capacities.get(course, 0):
+        
+        # Phase 2: Merit-based admission
+        for course in course_names:
+            if course not in course_capacities:
+                continue
+            remaining = course_capacities[course] - course_admission_counts[course]
+            if remaining > 0:
+                candidates = []
+                for student_row in student_course_matrix:
+                    student_id = student_row['student_id']
+                    student_data = student_row['student_data']
+                    if student_id not in admitted_students and student_row[course]['eligible']:
+                        olevel_avg = sum(student_data['olevel_subjects'].values()) / len(student_data['olevel_subjects']) if student_data['olevel_subjects'] else 9
+                        candidates.append({
+                            'student_id': student_id,
+                            'student_data': student_data,
+                            'score': student_row[course]['score'],
+                            'olevel_avg': olevel_avg,
+                            'course': course
+                        })
+                candidates.sort(key=lambda x: (x['score'], -x['olevel_avg']), reverse=True)
+                for i, candidate in enumerate(candidates[:remaining]):
+                    results.append({
+                        'student_id': candidate['student_id'],
+                        'admitted_course': course,
+                        'status': 'ADMITTED',
+                        'score': candidate['score'],
+                        'rank': course_admission_counts[course] + i + 1,
+                        'admission_type': 'MERIT'
+                    })
+                    admitted_students.add(candidate['student_id'])
+                    course_admission_counts[course] += 1
+        
+        # Phase 3: Alternative admissions and waitlisting
+        remaining_students = []
+        for student_row in student_course_matrix:
+            student_id = student_row['student_id']
+            student_data = student_row['student_data']
+            if student_id not in admitted_students:
+                max_alt_score = max([student_row[course]['score'] for course in course_names if student_row[course]['eligible'] and course != student_data['preferred_course']] or [0])
+                remaining_students.append((student_row, student_data, max_alt_score))
+        remaining_students.sort(key=lambda x: x[2], reverse=True)
+        
+        for student_row, student_data, _ in remaining_students:
+            student_id = student_data['student_id']
+            if student_id not in admitted_students:
+                smart_alternatives = find_smart_alternatives(
+                    student_data, student_course_matrix, course_capacities, course_admission_counts
+                )
+                admitted = False
+                for alternative in smart_alternatives:
+                    course = alternative['course']
+                    if course_admission_counts.get(course, 0) < course_capacities.get(course, 0):
+                        results.append({
+                            'student_id': student_id,
+                            'admitted_course': course,
+                            'status': 'ALTERNATIVE_ADMISSION',
+                            'score': alternative['score'],
+                            'base_score': alternative['base_score'],
+                            'similarity_score': alternative['similarity_score'],
+                            'original_preference': student_data['preferred_course'],
+                            'admission_type': 'SMART_ALTERNATIVE',
+                            'recommendation_reason': alternative['recommendation_reason'],
+                            'available_alternatives': len(smart_alternatives)
+                        })
+                        admitted_students.add(student_id)
+                        course_admission_counts[course] += 1
+                        admitted = True
+                        break
+                if not admitted:
+                    min_req_met = check_minimum_university_requirements(student_data)
+                    status = 'WAITLISTED' if min_req_met and smart_alternatives else 'NOT_QUALIFIED'
+                    reason = 'Qualified but no capacity in suitable alternatives' if min_req_met else 'Does not meet minimum requirements'
                     results.append({
                         'student_id': student_id,
-                        'admitted_course': course,
-                        'status': 'ALTERNATIVE_ADMISSION',
-                        'score': alternative['score'],
-                        'base_score': alternative['base_score'],
-                        'similarity_score': alternative['similarity_score'],
-                        'original_preference': student_data['preferred_course'],
-                        'admission_type': 'SMART_ALTERNATIVE',
-                        'recommendation_reason': alternative['recommendation_reason'],
-                        'available_alternatives': len(smart_alternatives)
+                        'admitted_course': 'NONE',
+                        'status': status,
+                        'score': 0,
+                        'reason': reason,
+                        'admission_type': status.upper(),
+                        'suggested_alternatives': [alt['course'] for alt in smart_alternatives[:3]] if smart_alternatives else []
                     })
-                    admitted_students.add(student_id)
-                    course_admission_counts[course] += 1
-                    admitted = True
-                    break
-            if not admitted:
-                min_req_met = check_minimum_university_requirements(student_data)
-                status = 'WAITLISTED' if min_req_met and smart_alternatives else 'NOT_QUALIFIED'
-                reason = 'Qualified but no capacity in suitable alternatives' if min_req_met else 'Does not meet minimum requirements'
-                results.append({
-                    'student_id': student_id,
-                    'admitted_course': 'NONE',
-                    'status': status,
-                    'score': 0,
-                    'reason': reason,
-                    'admission_type': status.upper(),
-                    'suggested_alternatives': [alt['course'] for alt in smart_alternatives[:3]] if smart_alternatives else []
-                })
-    logger.info(f"Admission processing complete: {len(admitted_students)} admitted, {len(students) - len(admitted_students)} remaining")
-    return results
+        logger.info(f"Admission processing complete: {len(admitted_students)} admitted, {len(students) - len(admitted_students)} remaining")
+        return results
+    except Exception as e:
+        logger.error(f"Error in run_intelligent_admission_algorithm_v2: {str(e)}")
+        st.error(f"Admission algorithm failed: {str(e)}")
+        return []
 
 def check_minimum_university_requirements(student_data):
     """Check minimum university requirements"""
@@ -931,6 +948,7 @@ def create_download_button(data, filename, label, file_type="csv"):
 def display_comprehensive_dashboard(admission_results, original_df, course_capacities):
     """Display comprehensive dashboard"""
     if not admission_results:
+        st.warning("No admission results to display. Please check your input data.")
         return
     st.header("📊 Advanced Analytics & Export Center")
     detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, original_df, course_capacities)
@@ -1169,11 +1187,15 @@ def generate_statistical_report(admission_results, original_df, course_capacitie
 st.header("📁 FUTA Admission Processing System")
 uploaded_file = st.file_uploader("Upload CSV with student data (student_id, name, utme_score, preferred_course, interests, learning_style, state_of_origin, gender, age, [subject]_grade)", type="csv")
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    course_capacities = get_dynamic_course_capacities(df)
-    with st.spinner("Processing admissions..."):
-        admission_results = process_csv_applications(df, course_capacities)
-    display_comprehensive_dashboard(admission_results, df, course_capacities)
+    try:
+        df = pd.read_csv(uploaded_file)
+        course_capacities = get_dynamic_course_capacities(df)
+        with st.spinner("Processing admissions (this may take a minute)..."):
+            admission_results = process_csv_applications(df, course_capacities)
+        display_comprehensive_dashboard(admission_results, df, course_capacities)
+    except Exception as e:
+        st.error(f"Error processing CSV file: {str(e)}")
+        logger.error(f"Error in main application: {str(e)}")
 
 # Individual recommendation section
 st.markdown("---")
@@ -1238,21 +1260,26 @@ for i in range(7):
             olevel_subjects[subject] = grade_map[grade]
 
 if st.sidebar.button("🔮 Get My Recommendations", type="primary"):
-    if len(olevel_subjects) >= 5 and len(selected_interests) >= 1:
-        st.session_state.prediction_made = True
-        st.session_state.prediction_result = predict_placement_enhanced(
-            utme_score, olevel_subjects, selected_interests, learning_style, state_of_origin, gender
-        )
-        st.session_state.user_data = {
-            "utme_score": utme_score,
-            "olevel_subjects": olevel_subjects,
-            "selected_interests": selected_interests,
-            "learning_style": learning_style,
-            "state_of_origin": state_of_origin,
-            "gender": gender
-        }
-    else:
-        st.sidebar.error("Please enter at least 5 O'Level subjects and select at least 1 interest area")
+    try:
+        if len(olevel_subjects) >= 5 and len(selected_interests) >= 1:
+            st.session_state.prediction_made = True
+            with st.spinner("Generating recommendations (please wait)..."):
+                st.session_state.prediction_result = predict_placement_enhanced(
+                    utme_score, olevel_subjects, selected_interests, learning_style, state_of_origin, gender
+                )
+                st.session_state.user_data = {
+                    "utme_score": utme_score,
+                    "olevel_subjects": olevel_subjects,
+                    "selected_interests": selected_interests,
+                    "learning_style": learning_style,
+                    "state_of_origin": state_of_origin,
+                    "gender": gender
+                }
+        else:
+            st.sidebar.error("Please enter at least 5 O'Level subjects and select at least 1 interest area")
+    except Exception as e:
+        st.sidebar.error(f"Recommendation failed: {str(e)}")
+        logger.error(f"Error in recommendation button: {str(e)}")
 
 if st.session_state.prediction_made:
     result = st.session_state.prediction_result
