@@ -1431,6 +1431,8 @@ def display_comprehensive_dashboard(admission_results, original_df, course_capac
         if stats_json_btn:
             st.markdown(stats_json_btn, unsafe_allow_html=True)
 
+    if uploaded_file is not None:
+        pass  # CSV processing logic is handled above
     else:
         st.info("Upload a CSV file to process batch admissions or use individual recommendation below.")
 
