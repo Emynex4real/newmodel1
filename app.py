@@ -1441,6 +1441,8 @@ if st.session_state.get('show_individual_form', True):
     st.markdown("---")
     st.header("🎓 Individual Student Recommendation")
     
+    common_subjects, grade_map, course_names, course_groups, cutoff_marks, course_details, interest_categories, learning_styles = load_course_data()
+    
     # Course requirements (simplified version for demo)
     @st.cache_data
     def get_course_requirements():
