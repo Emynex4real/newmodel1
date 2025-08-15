@@ -539,10 +539,34 @@ def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, 
         results_df = pd.DataFrame(results)
         eligible_courses = results_df[results_df["eligible"] & (results_df["score"] > 0)]
         if eligible_courses.empty:
+            # Improved error message with specific reasons
+            reasons = []
+            if utme_score < 160:
+                reasons.append(f"Your UTME score ({utme_score}) is below the minimum university requirement of 160.")
+            if len([s for s, g in olevel_subjects.items() if g <= 6]) < 5:
+                reasons.append("You need at least 5 O'Level credits (C6 or better).")
+            if "English Language" not in olevel_subjects or olevel_subjects.get("English Language", 9) > 6:
+                reasons.append("A credit in English Language (C6 or better) is required for all courses.")
+            if "Mathematics" not in olevel_subjects or olevel_subjects.get("Mathematics", 9) > 6:
+                reasons.append("A credit in Mathematics (C6 or better) is required for all courses.")
+            
+            reason_text = "You are not eligible for any course due to the following reasons:\n" + "\n".join(f"- {r}" for r in reasons)
+            if not reasons:
+                reason_text = "You are not eligible for any course. Please check your UTME score and O'Level grades against course requirements."
+            
+            suggestions = [
+                "📈 Retake UTME to improve your score if it is below the required cutoff.",
+                "📚 Ensure at least 5 O'Level credits, including English Language and Mathematics.",
+                "🔍 Review specific course requirements in the university guidelines.",
+                "🎯 Consider courses with lower UTME cutoffs (e.g., 180).",
+                "📞 Contact the admissions office for guidance."
+            ]
+            
             return {
                 "predicted_program": "UNASSIGNED",
                 "score": 0,
-                "reason": "No eligible course found",
+                "reason": reason_text,
+                "suggestions": suggestions,
                 "all_eligible": pd.DataFrame()
             }
         best_course = eligible_courses.loc[eligible_courses["score"].idxmax()]
@@ -559,7 +583,7 @@ def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, 
         return {
             "predicted_program": "UNASSIGNED",
             "score": 0,
-            "reason": f"Prediction failed due to error: {str(e)}",
+            "reason": f"Prediction failed due to an unexpected error: {str(e)}",
             "all_eligible": pd.DataFrame()
         }
 
@@ -1247,7 +1271,7 @@ selected_interests = st.sidebar.multiselect(
     "Select your areas of interest (choose 2-4):",
     options=list(interest_categories.keys()),
     default=["Problem Solving & Logic"],
-    help="Select multiple areas that interest you most"
+    help="Select multiple Fence:areas that interest you most"
 )
 learning_style = st.sidebar.selectbox(
     "Learning Style",
@@ -1380,17 +1404,7 @@ if st.session_state.prediction_made:
         st.error("❌ No Eligible Course Found")
         st.markdown(f"**Reason:** {result['reason']}")
         st.subheader("💡 Improvement Suggestions")
-        suggestions = []
-        if user_data["utme_score"] < 180:
-            suggestions.append("📈 Retake UTME to improve your score (minimum 180 required)")
-        if len(user_data["olevel_subjects"]) < 5:
-            suggestions.append("📚 Ensure at least 5 O'Level credits")
-        suggestions.extend([
-            "🔍 Review O'Level requirements for preferred courses",
-            "🎯 Consider alternative courses with lower entry requirements",
-            "📞 Consult with academic advisors"
-        ])
-        for suggestion in suggestions:
+        for suggestion in result.get("suggestions", []):
             st.markdown(f"• {suggestion}")
 
 st.markdown("---")
