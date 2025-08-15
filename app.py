@@ -1431,8 +1431,13 @@ def display_comprehensive_dashboard(admission_results, original_df, course_capac
         if stats_json_btn:
             st.markdown(stats_json_btn, unsafe_allow_html=True)
 
-else:
-    # ... existing code for individual recommendations ...
+    else:
+        st.info("Upload a CSV file to process batch admissions or use individual recommendation below.")
+
+# Individual Student Recommendation Section
+if st.session_state.get('show_individual_form', True):
+    st.markdown("---")
+    st.header("🎓 Individual Student Recommendation")
     
     # Course requirements (simplified version for demo)
     @st.cache_data
@@ -1733,8 +1738,6 @@ else:
             }
         else:
             st.sidebar.error("Please enter at least 5 O'Level subjects and select at least 1 interest area")
-
-    # ... existing code for displaying individual recommendations ...
 
     # Main content area
     if st.session_state.prediction_made:
