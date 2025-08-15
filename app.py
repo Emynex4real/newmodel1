@@ -292,7 +292,10 @@ def train_placement_model():
                         interest_weight += 0.2
                     score = compute_enhanced_score(utme, grade_sum, count, interest_weight, diversity_score)
                 
-                features = {'utme': utme}
+                features = {
+                    'utme': utme,
+                    'score': score  # Explicitly add score to features
+                }
                 for sub in common_subjects:
                     features[sub] = olevels.get(sub, 9)
                 for int_ in interest_categories.keys():
