@@ -1005,448 +1005,431 @@ def download_csv(df, filename):
     href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">Download {filename}</a>'
     return href
 
-@st.cache_data
-def safe_load_data():
-    """Safely load data with error handling"""
-    try:
-        return load_course_data()
-    except Exception as e:
-        st.error(f"Error loading course data: {str(e)}")
-        return None, None, None, None, None, None, None, None
-
-# Title and description
-st.title("🎓 University Admission Management System")
-st.markdown(
-    "**Intelligent batch processing system for university admissions with ML-powered course allocation**"
-)
-
-mode = st.sidebar.selectbox(
-    "Select Mode",
-    ["Individual Recommendation", "Batch Admission Processing"],
-    help="Choose between individual student recommendations or batch processing for admissions"
-)
-
-# Initialize session state
-if "prediction_made" not in st.session_state:
-    st.session_state.prediction_made = False
-
-try:
-    data_result = safe_load_data()
-    if data_result[0] is not None:
-        common_subjects, grade_map, course_names, course_groups, cutoff_marks, course_details, interest_categories, learning_styles = data_result
-    else:
-        st.stop()
-except Exception as e:
-    st.error(f"Failed to initialize application: {str(e)}")
-    st.stop()
-
-if mode == "Batch Admission Processing":
-    st.header("📊 Batch Admission Processing")
+def create_comprehensive_admission_report(admission_results, original_df, course_capacities):
+    """Create a comprehensive admission report with detailed analytics"""
+    results_df = pd.DataFrame(admission_results)
     
-    st.subheader("🎯 Course Capacity Configuration")
+    # Merge with original student data
+    detailed_results = results_df.merge(
+        original_df[['student_id', 'name', 'utme_score', 'preferred_course']], 
+        on='student_id', 
+        how='left'
+    )
     
-    # Capacity management tabs
-    capacity_tab1, capacity_tab2, capacity_tab3 = st.tabs(["Manual Configuration", "Smart Suggestions", "Capacity Analytics"])
+    # Create summary statistics
+    summary_stats = {
+        'Total Applications': len(original_df),
+        'Direct Admissions': len(results_df[results_df['status'] == 'ADMITTED']),
+        'Alternative Admissions': len(results_df[results_df['status'] == 'ALTERNATIVE_ADMISSION']),
+        'Not Qualified': len(results_df[results_df['status'] == 'NOT_QUALIFIED']),
+        'Waitlisted': len(results_df[results_df['status'] == 'WAITLISTED']),
+        'Overall Admission Rate': f"{((len(results_df[results_df['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])]) / len(original_df)) * 100):.1f}%",
+        'Processing Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
     
-    with capacity_tab1:
-        st.markdown("**Configure course capacities manually:**")
+    # Course-wise breakdown
+    course_breakdown = results_df[results_df['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])].groupby('admitted_course').agg({
+        'student_id': 'count',
+        'score': ['mean', 'min', 'max']
+    }).round(3)
+    
+    course_breakdown.columns = ['Students_Admitted', 'Avg_Score', 'Min_Score', 'Max_Score']
+    course_breakdown = course_breakdown.reset_index()
+    
+    # Add capacity utilization
+    course_breakdown['Capacity'] = course_breakdown['admitted_course'].map(course_capacities)
+    course_breakdown['Utilization_Rate'] = ((course_breakdown['Students_Admitted'] / course_breakdown['Capacity']) * 100).round(1)
+    
+    return detailed_results, summary_stats, course_breakdown
+
+def export_to_excel(admission_results, original_df, course_capacities, filename):
+    """Export comprehensive results to Excel with multiple sheets"""
+    detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(
+        admission_results, original_df, course_capacities
+    )
+    
+    # Create Excel writer object
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
         
-        # Organize courses by category for better UX
+        # Define formats
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'top',
+            'fg_color': '#D7E4BC',
+            'border': 1
+        })
+        
+        # Sheet 1: All Results
+        detailed_results.to_excel(writer, sheet_name='All_Results', index=False)
+        worksheet1 = writer.sheets['All_Results']
+        
+        # Format headers
+        for col_num, value in enumerate(detailed_results.columns.values):
+            worksheet1.write(0, col_num, value, header_format)
+        
+        # Auto-adjust column widths
+        for i, col in enumerate(detailed_results.columns):
+            max_length = max(detailed_results[col].astype(str).map(len).max(), len(col))
+            worksheet1.set_column(i, i, min(max_length + 2, 50))
+        
+        # Sheet 2: Admitted Students Only
+        admitted_students = detailed_results[detailed_results['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])]
+        admitted_students.to_excel(writer, sheet_name='Admitted_Students', index=False)
+        worksheet2 = writer.sheets['Admitted_Students']
+        
+        for col_num, value in enumerate(admitted_students.columns.values):
+            worksheet2.write(0, col_num, value, header_format)
+        
+        # Sheet 3: Course Breakdown
+        course_breakdown.to_excel(writer, sheet_name='Course_Analysis', index=False)
+        worksheet3 = writer.sheets['Course_Analysis']
+        
+        for col_num, value in enumerate(course_breakdown.columns.values):
+            worksheet3.write(0, col_num, value, header_format)
+        
+        # Sheet 4: Summary Statistics
+        summary_df = pd.DataFrame(list(summary_stats.items()), columns=['Metric', 'Value'])
+        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        worksheet4 = writer.sheets['Summary']
+        
+        for col_num, value in enumerate(summary_df.columns.values):
+            worksheet4.write(0, col_num, value, header_format)
+        
+        # Sheet 5: Not Qualified Students
+        not_qualified = detailed_results[detailed_results['status'] == 'NOT_QUALIFIED']
+        if not not_qualified.empty:
+            not_qualified.to_excel(writer, sheet_name='Not_Qualified', index=False)
+            worksheet5 = writer.sheets['Not_Qualified']
+            
+            for col_num, value in enumerate(not_qualified.columns.values):
+                worksheet5.write(0, col_num, value, header_format)
+    
+    output.seek(0)
+    return output
+
+def create_admission_letters_data(admission_results, original_df):
+    """Create data for generating admission letters"""
+    results_df = pd.DataFrame(admission_results)
+    admitted_students = results_df[results_df['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])]
+    
+    # Merge with original data
+    letters_data = admitted_students.merge(
+        original_df[['student_id', 'name', 'utme_score', 'preferred_course']], 
+        on='student_id', 
+        how='left'
+    )
+    
+    # Add letter-specific information
+    letters_data['admission_date'] = datetime.now().strftime('%B %d, %Y')
+    letters_data['academic_session'] = f"{datetime.now().year}/{datetime.now().year + 1}"
+    letters_data['letter_type'] = letters_data['status'].map({
+        'ADMITTED': 'Direct Admission',
+        'ALTERNATIVE_ADMISSION': 'Alternative Course Admission'
+    })
+    
+    return letters_data
+
+def generate_statistical_report(admission_results, original_df, course_capacities):
+    """Generate detailed statistical analysis report"""
+    results_df = pd.DataFrame(admission_results)
+    
+    # Basic statistics
+    total_applications = len(original_df)
+    admitted_count = len(results_df[results_df['status'] == 'ADMITTED'])
+    alternative_count = len(results_df[results_df['status'] == 'ALTERNATIVE_ADMISSION'])
+    rejected_count = len(results_df[results_df['status'] == 'NOT_QUALIFIED'])
+    
+    # Score analysis
+    admitted_scores = results_df[results_df['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])]['score']
+    
+    # Course preference analysis
+    preference_analysis = original_df['preferred_course'].value_counts()
+    
+    # UTME score distribution
+    utme_stats = original_df['utme_score'].describe()
+    
+    # Capacity utilization
+    utilization_stats = calculate_capacity_utilization(admission_results, course_capacities)
+    
+    report = {
+        'processing_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'application_summary': {
+            'total_applications': total_applications,
+            'admitted_direct': admitted_count,
+            'admitted_alternative': alternative_count,
+            'rejected': rejected_count,
+            'admission_rate': f"{((admitted_count + alternative_count) / total_applications * 100):.1f}%"
+        },
+        'score_analysis': {
+            'mean_admitted_score': f"{admitted_scores.mean():.3f}" if not admitted_scores.empty else "N/A",
+            'median_admitted_score': f"{admitted_scores.median():.3f}" if not admitted_scores.empty else "N/A",
+            'min_admitted_score': f"{admitted_scores.min():.3f}" if not admitted_scores.empty else "N/A",
+            'max_admitted_score': f"{admitted_scores.max():.3f}" if not admitted_scores.empty else "N/A"
+        },
+        'utme_distribution': {
+            'mean': f"{utme_stats['mean']:.1f}",
+            'median': f"{utme_stats['50%']:.1f}",
+            'min': f"{utme_stats['min']:.0f}",
+            'max': f"{utme_stats['max']:.0f}",
+            'std': f"{utme_stats['std']:.1f}"
+        },
+        'top_preferences': preference_analysis.head(10).to_dict(),
+        'capacity_utilization': {
+            course: {
+                'capacity': stats['capacity'],
+                'admitted': stats['admitted'],
+                'utilization_rate': f"{stats['utilization_rate']:.1f}%"
+            }
+            for course, stats in utilization_stats.items()
+            if stats['admitted'] > 0
+        }
+    }
+    
+    return report
+
+def create_download_button(data, filename, label, file_type="csv"):
+    """Create a download button for different file types"""
+    if file_type == "csv":
+        if isinstance(data, pd.DataFrame):
+            csv_data = data.to_csv(index=False)
+            b64 = base64.b64encode(csv_data.encode()).decode()
+            href = f'<a href="data:file/csv;base64,{b64}" download="{filename}" style="text-decoration: none;"><button style="background-color: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">{label}</button></a>'
+        else:
+            return None
+    elif file_type == "excel":
+        b64 = base64.b64encode(data.getvalue()).decode()
+        href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}" style="text-decoration: none;"><button style="background-color: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">{label}</button></a>'
+    elif file_type == "json":
+        json_data = json.dumps(data, indent=2)
+        b64 = base64.b64encode(json_data.encode()).decode()
+        href = f'<a href="data:application/json;base64,{b64}" download="{filename}" style="text-decoration: none;"><button style="background-color: #FF9800; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">{label}</button></a>'
+    else:
+        return None
+    
+    return href
+
+def display_comprehensive_dashboard(admission_results, original_df, course_capacities):
+    """Display comprehensive dashboard with advanced export options"""
+    if not admission_results:
+        return
+    
+    st.header("📊 Advanced Analytics & Export Center")
+    
+    # Create comprehensive report data
+    detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(
+        admission_results, original_df, course_capacities
+    )
+    
+    # Export options tabs
+    export_tab1, export_tab2, export_tab3, export_tab4 = st.tabs([
+        "📄 Standard Reports", 
+        "📊 Excel Analytics", 
+        "📋 Admission Letters", 
+        "📈 Statistical Analysis"
+    ])
+    
+    with export_tab1:
+        st.subheader("📄 Standard CSV Reports")
+        
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("**🔧 Engineering & Technology:**")
-            engineering_courses = [
-                "Computer Science", "Civil Engineering", "Electrical / Electronics Engineering", 
-                "Mechanical Engineering", "Computer Engineering", "Software Engineering",
-                "Industrial & Production Engineering"
-            ]
-            for course in engineering_courses:
-                if course in course_names:
-                    COURSE_CAPACITIES[course] = st.number_input(
-                        f"{course}",
-                        min_value=10,
-                        max_value=500,
-                        value=COURSE_CAPACITIES.get(course, DEFAULT_CAPACITY),
-                        key=f"capacity_{course}",
-                        help=f"Set admission capacity for {course}"
-                    )
+            st.markdown("**All Results**")
+            st.markdown("Complete admission results with all student data")
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            all_results_btn = create_download_button(
+                detailed_results, 
+                f"complete_admission_results_{timestamp}.csv",
+                "📥 Download All Results"
+            )
+            if all_results_btn:
+                st.markdown(all_results_btn, unsafe_allow_html=True)
         
         with col2:
-            st.markdown("**🧬 Science & Health:**")
-            science_courses = [
-                "Human Anatomy", "Medical Laboratory Science", "Physiology", 
-                "Biochemistry", "Mathematics", "Physics", "Statistics",
-                "Biology", "Chemistry", "Microbiology"
-            ]
-            for course in science_courses:
-                if course in course_names:
-                    COURSE_CAPACITIES[course] = st.number_input(
-                        f"{course}",
-                        min_value=10,
-                        max_value=500,
-                        value=COURSE_CAPACITIES.get(course, DEFAULT_CAPACITY),
-                        key=f"capacity_{course}",
-                        help=f"Set admission capacity for {course}"
-                    )
+            st.markdown("**Admitted Students Only**")
+            st.markdown("Students who received admission offers")
+            admitted_students = detailed_results[detailed_results['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])]
+            admitted_btn = create_download_button(
+                admitted_students,
+                f"admitted_students_{timestamp}.csv",
+                "📥 Download Admitted"
+            )
+            if admitted_btn:
+                st.markdown(admitted_btn, unsafe_allow_html=True)
         
         with col3:
-            st.markdown("**🏗️ Other Disciplines:**")
-            other_courses = [
-                "Architecture", "Building", "Information Systems", 
-                "Information Technology", "Cyber Security", "Industrial Design",
-                "Estate Management", "Quantity Surveying"
-            ]
-            for course in other_courses:
-                if course in course_names:
-                    COURSE_CAPACITIES[course] = st.number_input(
-                        f"{course}",
-                        min_value=10,
-                        max_value=500,
-                        value=COURSE_CAPACITIES.get(course, DEFAULT_CAPACITY),
-                        key=f"capacity_{course}",
-                        help=f"Set admission capacity for {course}"
+            st.markdown("**Course Analysis**")
+            st.markdown("Course-wise admission statistics")
+            course_btn = create_download_button(
+                course_breakdown,
+                f"course_analysis_{timestamp}.csv",
+                "📥 Download Analysis"
+            )
+            if course_btn:
+                st.markdown(course_btn, unsafe_allow_html=True)
+        
+        # Additional specialized reports
+        st.markdown("---")
+        st.subheader("🎯 Specialized Reports")
+        
+        spec_col1, spec_col2, spec_col3 = st.columns(3)
+        
+        with spec_col1:
+            not_qualified = detailed_results[detailed_results['status'] == 'NOT_QUALIFIED']
+            if not not_qualified.empty:
+                st.markdown("**Not Qualified Students**")
+                not_qualified_btn = create_download_button(
+                    not_qualified,
+                    f"not_qualified_students_{timestamp}.csv",
+                    "📥 Download Not Qualified"
+                )
+                if not_qualified_btn:
+                    st.markdown(not_qualified_btn, unsafe_allow_html=True)
+        
+        with spec_col2:
+            waitlisted = detailed_results[detailed_results['status'] == 'WAITLISTED']
+            if not waitlisted.empty:
+                st.markdown("**Waitlisted Students**")
+                waitlisted_btn = create_download_button(
+                    waitlisted,
+                    f"waitlisted_students_{timestamp}.csv",
+                    "📥 Download Waitlisted"
+                )
+                if waitlisted_btn:
+                    st.markdown(waitlisted_btn, unsafe_allow_html=True)
+        
+        with spec_col3:
+            alternative_admits = detailed_results[detailed_results['status'] == 'ALTERNATIVE_ADMISSION']
+            if not alternative_admits.empty:
+                st.markdown("**Alternative Admissions**")
+                alt_btn = create_download_button(
+                    alternative_admits,
+                    f"alternative_admissions_{timestamp}.csv",
+                    "📥 Download Alternatives"
+                )
+                if alt_btn:
+                    st.markdown(alt_btn, unsafe_allow_html=True)
+    
+    with export_tab2:
+        st.subheader("📊 Comprehensive Excel Analytics")
+        st.markdown("Download a complete Excel workbook with multiple analysis sheets")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown("""
+            **Excel Report Includes:**
+            - 📋 All admission results
+            - ✅ Admitted students summary
+            - 📊 Course-wise analysis
+            - 📈 Summary statistics
+            - ❌ Not qualified students
+            - 📊 Capacity utilization charts
+            """)
+        
+        with col2:
+            if st.button("🔄 Generate Excel Report", type="primary"):
+                with st.spinner("Generating comprehensive Excel report..."):
+                    excel_data = export_to_excel(admission_results, original_df, course_capacities, f"admission_report_{timestamp}.xlsx")
+                    excel_btn = create_download_button(
+                        excel_data,
+                        f"comprehensive_admission_report_{timestamp}.xlsx",
+                        "📥 Download Excel Report",
+                        "excel"
                     )
-        
-        # Quick capacity adjustment tools
-        st.markdown("**⚡ Quick Adjustments:**")
-        quick_col1, quick_col2, quick_col3 = st.columns(3)
-        
-        with quick_col1:
-            if st.button("Set All Engineering to 100"):
-                for course in engineering_courses:
-                    if course in COURSE_CAPACITIES:
-                        COURSE_CAPACITIES[course] = 100
-                st.rerun()
-        
-        with quick_col2:
-            if st.button("Set All Science to 80"):
-                for course in science_courses:
-                    if course in COURSE_CAPACITIES:
-                        COURSE_CAPACITIES[course] = 80
-                st.rerun()
-        
-        with quick_col3:
-            total_capacity = sum(COURSE_CAPACITIES.values())
-            st.metric("Total University Capacity", total_capacity)
+                    if excel_btn:
+                        st.markdown(excel_btn, unsafe_allow_html=True)
+                        st.success("✅ Excel report generated successfully!")
     
-    with capacity_tab2:
-        st.markdown("**AI-powered capacity suggestions based on demand analysis:**")
+    with export_tab3:
+        st.subheader("📋 Admission Letters Data")
+        st.markdown("Generate data for creating personalized admission letters")
         
-        # File upload for demand analysis
-        demand_file = st.file_uploader(
-            "Upload student applications for demand analysis",
-            type=['csv'],
-            key="demand_analysis_file",
-            help="Upload CSV to analyze student demand patterns and get capacity suggestions"
-        )
+        letters_data = create_admission_letters_data(admission_results, original_df)
         
-        if demand_file is not None:
-            try:
-                demand_df = pd.read_csv(demand_file)
-                
-                # Analyze demand
-                demand_analysis = analyze_student_demand(demand_df)
-                capacity_suggestions = optimize_course_capacities(
-                    {course: stats['total_estimated_demand'] for course, stats in demand_analysis.items()},
-                    COURSE_CAPACITIES
-                )
-                
-                if capacity_suggestions:
-                    st.subheader("📈 Capacity Optimization Suggestions")
-                    
-                    for course, suggestion in capacity_suggestions.items():
-                        with st.expander(f"📋 {course} - {suggestion['priority']} Priority"):
-                            col1, col2, col3 = st.columns(3)
-                            
-                            with col1:
-                                st.metric("Current Capacity", suggestion['current'])
-                            with col2:
-                                st.metric("Suggested Capacity", suggestion['suggested'])
-                            with col3:
-                                change = suggestion['suggested'] - suggestion['current']
-                                st.metric("Change", f"{change:+d}")
-                            
-                            st.write(f"**Reason:** {suggestion['reason']}")
-                            
-                            if st.button(f"Apply Suggestion for {course}", key=f"apply_{course}"):
-                                COURSE_CAPACITIES[course] = suggestion['suggested']
-                                st.success(f"Updated {course} capacity to {suggestion['suggested']}")
-                                st.rerun()
-                
-                # Demand visualization
-                st.subheader("📊 Student Demand Analysis")
-                
-                demand_data = []
-                for course, stats in demand_analysis.items():
-                    demand_data.append({
-                        'Course': course,
-                        'Primary Demand': stats['primary_demand'],
-                        'Secondary Demand': stats['secondary_demand'],
-                        'Total Demand': stats['total_estimated_demand'],
-                        'Current Capacity': COURSE_CAPACITIES.get(course, DEFAULT_CAPACITY),
-                        'Category': stats['demand_category']
-                    })
-                
-                demand_viz_df = pd.DataFrame(demand_data)
-                
-                # Create demand vs capacity chart
-                fig = go.Figure()
-                
-                fig.add_trace(go.Bar(
-                    name='Student Demand',
-                    x=demand_viz_df['Course'],
-                    y=demand_viz_df['Total Demand'],
-                    marker_color='lightblue'
-                ))
-                
-                fig.add_trace(go.Bar(
-                    name='Current Capacity',
-                    x=demand_viz_df['Course'],
-                    y=demand_viz_df['Current Capacity'],
-                    marker_color='orange'
-                ))
-                
-                fig.update_layout(
-                    title='Student Demand vs Current Capacity',
-                    xaxis_title='Course',
-                    yaxis_title='Number of Students',
-                    barmode='group',
-                    height=500
-                )
-                fig.update_xaxis(tickangle=45)
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-            except Exception as e:
-                st.error(f"Error analyzing demand: {str(e)}")
-        else:
-            st.info("Upload a CSV file with student applications to get AI-powered capacity suggestions")
-    
-    with capacity_tab3:
-        st.markdown("**Real-time capacity analytics and utilization tracking:**")
-        
-        # Current capacity overview
-        current_capacities = get_dynamic_course_capacities()
-        
-        # Create capacity overview visualization
-        capacity_data = []
-        for course, capacity in current_capacities.items():
-            category = 'Engineering' if any(eng in course for eng in ['Engineering', 'Computer', 'Software']) else \
-                      'Science' if any(sci in course for sci in ['Science', 'Mathematics', 'Physics', 'Chemistry', 'Biology']) else \
-                      'Health' if any(health in course for health in ['Anatomy', 'Medical', 'Physiology']) else 'Other'
+        if not letters_data.empty:
+            col1, col2 = st.columns(2)
             
-            capacity_data.append({
-                'Course': course,
-                'Capacity': capacity,
-                'Category': category
-            })
+            with col1:
+                st.markdown("**Letter Template Data**")
+                st.markdown(f"Data for {len(letters_data)} admission letters")
+                
+                # Preview first few rows
+                st.dataframe(letters_data[['name', 'admitted_course', 'letter_type']].head(), use_container_width=True)
+            
+            with col2:
+                st.markdown("**Download Options**")
+                
+                letters_btn = create_download_button(
+                    letters_data,
+                    f"admission_letters_data_{timestamp}.csv",
+                    "📥 Download Letters Data"
+                )
+                if letters_btn:
+                    st.markdown(letters_btn, unsafe_allow_html=True)
+                
+                # JSON format for mail merge
+                letters_json = letters_data.to_dict('records')
+                json_btn = create_download_button(
+                    letters_json,
+                    f"admission_letters_data_{timestamp}.json",
+                    "📥 Download JSON Format",
+                    "json"
+                )
+                if json_btn:
+                    st.markdown(json_btn, unsafe_allow_html=True)
+        else:
+            st.info("No admitted students to generate letters for.")
+    
+    with export_tab4:
+        st.subheader("📈 Statistical Analysis Report")
+        st.markdown("Detailed statistical analysis of the admission process")
         
-        capacity_df = pd.DataFrame(capacity_data)
+        # Generate statistical report
+        stats_report = generate_statistical_report(admission_results, original_df, course_capacities)
         
-        # Capacity by category
-        category_summary = capacity_df.groupby('Category')['Capacity'].sum().reset_index()
-        
+        # Display key statistics
         col1, col2 = st.columns(2)
         
         with col1:
-            fig_pie = px.pie(
-                category_summary, 
-                values='Capacity', 
-                names='Category',
-                title='Capacity Distribution by Category'
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.markdown("**Application Summary**")
+            for key, value in stats_report['application_summary'].items():
+                st.metric(key.replace('_', ' ').title(), value)
         
         with col2:
-            fig_bar = px.bar(
-                capacity_df.head(15), 
-                x='Course', 
-                y='Capacity',
-                color='Category',
-                title='Top 15 Courses by Capacity'
-            )
-            fig_bar.update_xaxis(tickangle=45)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.markdown("**Score Analysis**")
+            for key, value in stats_report['score_analysis'].items():
+                if value != "N/A":
+                    st.metric(key.replace('_', ' ').title(), value)
         
-        # Capacity statistics
-        st.subheader("📈 Capacity Statistics")
+        # UTME Distribution
+        st.markdown("**UTME Score Distribution**")
+        utme_col1, utme_col2, utme_col3, utme_col4, utme_col5 = st.columns(5)
         
-        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+        with utme_col1:
+            st.metric("Mean", stats_report['utme_distribution']['mean'])
+        with utme_col2:
+            st.metric("Median", stats_report['utme_distribution']['median'])
+        with utme_col3:
+            st.metric("Min", stats_report['utme_distribution']['min'])
+        with utme_col4:
+            st.metric("Max", stats_report['utme_distribution']['max'])
+        with utme_col5:
+            st.metric("Std Dev", stats_report['utme_distribution']['std'])
         
-        with stat_col1:
-            total_capacity = capacity_df['Capacity'].sum()
-            st.metric("Total University Capacity", f"{total_capacity:,}")
-        
-        with stat_col2:
-            avg_capacity = capacity_df['Capacity'].mean()
-            st.metric("Average Course Capacity", f"{avg_capacity:.0f}")
-        
-        with stat_col3:
-            max_capacity_course = capacity_df.loc[capacity_df['Capacity'].idxmax()]
-            st.metric("Largest Course", f"{max_capacity_course['Course'][:20]}...", f"{max_capacity_course['Capacity']}")
-        
-        with stat_col4:
-            min_capacity_course = capacity_df.loc[capacity_df['Capacity'].idxmin()]
-            st.metric("Smallest Course", f"{min_capacity_course['Course'][:20]}...", f"{min_capacity_course['Capacity']}")
-
-    # File upload section
-    st.subheader("📁 Upload Student Applications")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        uploaded_file = st.file_uploader(
-            "Upload CSV file with student applications",
-            type=['csv'],
-            help="Upload a CSV file containing student information including UTME scores, O'Level results, and preferences"
+        # Download statistical report
+        st.markdown("---")
+        stats_json_btn = create_download_button(
+            stats_report,
+            f"statistical_analysis_{timestamp}.json",
+            "📥 Download Statistical Report",
+            "json"
         )
-    
-    with col2:
-        st.markdown("**Need a sample file?**")
-        sample_df = create_sample_csv()
-        st.markdown(download_csv(sample_df, "sample_applications.csv"), unsafe_allow_html=True)
-        
-        if st.button("Preview Sample Data"):
-            st.dataframe(sample_df.head())
-    
-    # Process uploaded file
-    if uploaded_file is not None:
-        try:
-            df = pd.read_csv(uploaded_file)
-            st.success(f"✅ Successfully loaded {len(df)} student applications")
-            
-            # Display file preview
-            with st.expander("📋 Preview Uploaded Data"):
-                st.dataframe(df.head(10))
-            
-            # Process applications
-            if st.button("🚀 Process Admissions", type="primary"):
-                with st.spinner("Processing admissions using ML algorithms..."):
-                    # Use dynamic capacities
-                    dynamic_capacities = get_dynamic_course_capacities()
-                    admission_results = process_csv_applications(df, dynamic_capacities)
-                
-                # Display results
-                st.header("📊 Admission Results")
-                
-                results_df = pd.DataFrame(admission_results)
-                
-                # Summary statistics
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    admitted_count = len(results_df[results_df['status'] == 'ADMITTED'])
-                    st.metric("✅ Direct Admissions", admitted_count)
-                
-                with col2:
-                    alternative_count = len(results_df[results_df['status'] == 'ALTERNATIVE_ADMISSION'])
-                    st.metric("🔄 Alternative Admissions", alternative_count)
-                
-                with col3:
-                    rejected_count = len(results_df[results_df['status'] == 'NOT_QUALIFIED'])
-                    st.metric("❌ Not Qualified", rejected_count)
-                
-                with col4:
-                    total_admitted = admitted_count + alternative_count
-                    admission_rate = (total_admitted / len(df)) * 100
-                    st.metric("📈 Admission Rate", f"{admission_rate:.1f}%")
-                
-                # Capacity utilization analysis
-                st.subheader("🎯 Capacity Utilization Analysis")
-                
-                utilization_stats = calculate_capacity_utilization(admission_results, dynamic_capacities)
-                
-                # Create utilization visualization
-                util_data = []
-                for course, stats in utilization_stats.items():
-                    if stats['admitted'] > 0:  # Only show courses with admissions
-                        util_data.append({
-                            'Course': course,
-                            'Capacity': stats['capacity'],
-                            'Admitted': stats['admitted'],
-                            'Available': stats['available'],
-                            'Utilization Rate': stats['utilization_rate'],
-                            'Status': stats['status']
-                        })
-                
-                if util_data:
-                    util_df = pd.DataFrame(util_data)
-                    
-                    # Utilization rate chart
-                    fig_util = px.bar(
-                        util_df.sort_values('Utilization Rate', ascending=False),
-                        x='Course',
-                        y='Utilization Rate',
-                        color='Status',
-                        title='Course Capacity Utilization Rates',
-                        labels={'Utilization Rate': 'Utilization Rate (%)'}
-                    )
-                    fig_util.update_xaxis(tickangle=45)
-                    fig_util.add_hline(y=100, line_dash="dash", line_color="red", annotation_text="Full Capacity")
-                    st.plotly_chart(fig_util, use_container_width=True)
-                    
-                    # Utilization table
-                    st.dataframe(util_df, use_container_width=True)
-
-                # Course-wise admission breakdown
-                st.subheader("📊 Course-wise Admission Breakdown")
-                
-                course_breakdown = results_df[results_df['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])].groupby('admitted_course').size().reset_index(name='count')
-                
-                if not course_breakdown.empty:
-                    fig = px.bar(
-                        course_breakdown,
-                        x='admitted_course',
-                        y='count',
-                        title="Students Admitted by Course",
-                        labels={'admitted_course': 'Course', 'count': 'Number of Students'}
-                    )
-                    fig.update_xaxis(tickangle=45)
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # Detailed results table
-                st.subheader("📋 Detailed Admission Results")
-                
-                # Merge with original student data
-                detailed_results = results_df.merge(
-                    df[['student_id', 'name', 'utme_score', 'preferred_course']], 
-                    on='student_id', 
-                    how='left'
-                )
-                
-                # Format the results table
-                display_columns = ['name', 'student_id', 'utme_score', 'preferred_course', 'admitted_course', 'status', 'score']
-                if 'rank' in detailed_results.columns:
-                    display_columns.append('rank')
-                
-                st.dataframe(
-                    detailed_results[display_columns].sort_values('score', ascending=False),
-                    use_container_width=True
-                )
-                
-                # Download results
-                st.subheader("💾 Download Results")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    admitted_students = detailed_results[detailed_results['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])]
-                    st.markdown(
-                        download_csv(admitted_students, f"admitted_students_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"),
-                        unsafe_allow_html=True
-                    )
-                
-                with col2:
-                    rejected_students = detailed_results[detailed_results['status'] == 'NOT_QUALIFIED']
-                    st.markdown(
-                        download_csv(rejected_students, f"rejected_students_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"),
-                        unsafe_allow_html=True
-                    )
-        
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.info("Please ensure your CSV file has the required columns: student_id, name, utme_score, preferred_course, interests, learning_style, and O'Level grade columns")
+        if stats_json_btn:
+            st.markdown(stats_json_btn, unsafe_allow_html=True)
 
 else:
     # ... existing code for individual recommendations ...
