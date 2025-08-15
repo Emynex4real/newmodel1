@@ -1441,6 +1441,13 @@ if st.session_state.get('show_individual_form', True):
     st.markdown("---")
     st.header("🎓 Individual Student Recommendation")
     
+    if 'prediction_made' not in st.session_state:
+        st.session_state.prediction_made = False
+    if 'prediction_result' not in st.session_state:
+        st.session_state.prediction_result = None
+    if 'user_data' not in st.session_state:
+        st.session_state.user_data = {}
+    
     common_subjects, grade_map, course_names, course_groups, cutoff_marks, course_details, interest_categories, learning_styles = load_course_data()
     
     # Course requirements (simplified version for demo)
