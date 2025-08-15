@@ -199,71 +199,15 @@ def load_course_data():
 
 common_subjects, grade_map, course_names, course_groups, cutoff_marks, course_details, interest_categories, learning_styles = load_course_data()
 
-# Store feature names globally for consistency
+# Store feature names and model globally for consistency
 FEATURE_NAMES = None
-
-def get_course_requirements():
-    """Return detailed course requirements for all courses"""
-    requirements = {
-        "Computer Science": {
-            "mandatory": ["English Language", "Mathematics", "Physics"],
-            "or_groups": [],
-            "optional": {2: ["Biology", "Chemistry", "Economics", "Geography"]},
-            "thresholds": {},
-            "required_credit_count": 5,
-        },
-        "Civil Engineering": {
-            "mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
-            "or_groups": [],
-            "optional": {1: ["Biology", "Further Mathematics", "Technical Drawing"]},
-            "thresholds": {},
-            "required_credit_count": 5,
-        },
-        "Human Anatomy": {
-            "mandatory": ["English Language", "Mathematics", "Biology", "Chemistry", "Physics"],
-            "or_groups": [],
-            "optional": {},
-            "thresholds": {},
-            "required_credit_count": 5,
-        },
-        "Software Engineering": {
-            "mandatory": ["English Language", "Mathematics", "Physics"],
-            "or_groups": [],
-            "optional": {2: ["Chemistry", "Further Mathematics", "Economics"]},
-            "thresholds": {},
-            "required_credit_count": 5,
-        },
-        "Cyber Security": {
-            "mandatory": ["English Language", "Mathematics", "Physics"],
-            "or_groups": [],
-            "optional": {2: ["Chemistry", "Economics", "Further Mathematics"]},
-            "thresholds": {},
-            "required_credit_count": 5,
-        },
-        "Information Systems": {
-            "mandatory": ["English Language", "Mathematics"],
-            "or_groups": [],
-            "optional": {3: ["Physics", "Chemistry", "Economics", "Geography"]},
-            "thresholds": {},
-            "required_credit_count": 5,
-        },
-    }
-    default_req = {
-        "mandatory": ["English Language", "Mathematics"],
-        "or_groups": [],
-        "optional": {3: common_subjects[2:]},
-        "thresholds": {},
-        "required_credit_count": 5,
-    }
-    for course in course_names:
-        if course not in requirements:
-            requirements[course] = default_req
-    return requirements
+MODEL = None
+SCALER = None
 
 @st.cache_resource
 def train_placement_model():
     """Train a lightweight ML model for placement prediction"""
-    global FEATURE_NAMES
+    global FEATURE_NAMES, MODEL, SCALER
     logger.info("Starting placement model training")
     try:
         parsed_req = get_course_requirements()
@@ -329,12 +273,72 @@ def train_placement_model():
         mse = mean_squared_error(y_test, y_pred)
         logger.info(f"Model trained successfully with MSE: {mse:.4f}")
         
+        MODEL = model
+        SCALER = scaler
         return model, scaler
     
     except Exception as e:
         logger.error(f"Error during model training: {str(e)}")
         st.error(f"Failed to train model: {str(e)}")
         raise
+
+def get_course_requirements():
+    """Return detailed course requirements for all courses"""
+    requirements = {
+        "Computer Science": {
+            "mandatory": ["English Language", "Mathematics", "Physics"],
+            "or_groups": [],
+            "optional": {2: ["Biology", "Chemistry", "Economics", "Geography"]},
+            "thresholds": {},
+            "required_credit_count": 5,
+        },
+        "Civil Engineering": {
+            "mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
+            "or_groups": [],
+            "optional": {1: ["Biology", "Further Mathematics", "Technical Drawing"]},
+            "thresholds": {},
+            "required_credit_count": 5,
+        },
+        "Human Anatomy": {
+            "mandatory": ["English Language", "Mathematics", "Biology", "Chemistry", "Physics"],
+            "or_groups": [],
+            "optional": {},
+            "thresholds": {},
+            "required_credit_count": 5,
+        },
+        "Software Engineering": {
+            "mandatory": ["English Language", "Mathematics", "Physics"],
+            "or_groups": [],
+            "optional": {2: ["Chemistry", "Further Mathematics", "Economics"]},
+            "thresholds": {},
+            "required_credit_count": 5,
+        },
+        "Cyber Security": {
+            "mandatory": ["English Language", "Mathematics", "Physics"],
+            "or_groups": [],
+            "optional": {2: ["Chemistry", "Economics", "Further Mathematics"]},
+            "thresholds": {},
+            "required_credit_count": 5,
+        },
+        "Information Systems": {
+            "mandatory": ["English Language", "Mathematics"],
+            "or_groups": [],
+            "optional": {3: ["Physics", "Chemistry", "Economics", "Geography"]},
+            "thresholds": {},
+            "required_credit_count": 5,
+        },
+    }
+    default_req = {
+        "mandatory": ["English Language", "Mathematics"],
+        "or_groups": [],
+        "optional": {3: common_subjects[2:]},
+        "thresholds": {},
+        "required_credit_count": 5,
+    }
+    for course in course_names:
+        if course not in requirements:
+            requirements[course] = default_req
+    return requirements
 
 def get_dynamic_course_capacities(df):
     """Dynamically adjust course capacities based on demand"""
@@ -486,11 +490,12 @@ def compute_enhanced_score(utme_score, grade_sum, count, course_weight, diversit
 
 def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, learning_style, state, gender):
     """Predict placement using ML model"""
-    global FEATURE_NAMES
+    global FEATURE_NAMES, MODEL, SCALER
     try:
-        model, scaler = train_placement_model()
-        if FEATURE_NAMES is None:
-            raise ValueError("Feature names not initialized. Please ensure model training is complete.")
+        # Ensure model is trained
+        if MODEL is None or SCALER is None or FEATURE_NAMES is None:
+            logger.info("Model not initialized, training now")
+            MODEL, SCALER = train_placement_model()
         
         parsed_req = get_course_requirements()
         results = []
@@ -522,8 +527,8 @@ def predict_placement_enhanced(utme_score, olevel_subjects, selected_interests, 
             # Drop extra features not in training
             features_df = features_df[FEATURE_NAMES]
             
-            X_scaled = scaler.transform(features_df)
-            score = model.predict(X_scaled)[0]
+            X_scaled = SCALER.transform(features_df)
+            score = MODEL.predict(X_scaled)[0]
             if eligible:
                 grade_sum, count = compute_grade_sum(olevel_subjects, course, parsed_req)
                 score = compute_enhanced_score(utme_score, grade_sum, count, interest_weight, diversity_score)
@@ -1271,7 +1276,7 @@ selected_interests = st.sidebar.multiselect(
     "Select your areas of interest (choose 2-4):",
     options=list(interest_categories.keys()),
     default=["Problem Solving & Logic"],
-    help="Select multiple Fence:areas that interest you most"
+    help="Select multiple areas that interest you most"
 )
 learning_style = st.sidebar.selectbox(
     "Learning Style",
@@ -1314,6 +1319,8 @@ if st.sidebar.button("🔮 Get My Recommendations", type="primary"):
         if len(olevel_subjects) >= 5 and len(selected_interests) >= 1:
             st.session_state.prediction_made = True
             with st.spinner("Generating recommendations (please wait)..."):
+                # Force model retraining to ensure state is reset
+                st.cache_resource.clear()
                 st.session_state.prediction_result = predict_placement_enhanced(
                     utme_score, olevel_subjects, selected_interests, learning_style, state_of_origin, gender
                 )
