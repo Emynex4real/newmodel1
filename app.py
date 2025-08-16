@@ -1,5 +1,3 @@
-# Consolidated Imports
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -69,7 +67,7 @@ def get_course_requirements():
         }
     }
 
-def is_eligible(olevel_subjects, utme_subjects, course, parsed_requirements):
+def is_eligible(olevel_subjects, utme_subjects, course, parsed_requirements, utme_score):
     req = parsed_requirements.get(course, {})
     required_olevel = req.get("olevel_required", [])
     any_olevel = req.get("olevel_any", [])
@@ -82,8 +80,9 @@ def is_eligible(olevel_subjects, utme_subjects, course, parsed_requirements):
     grade_valid = all(olevel_subjects.get(sub, 0) >= grade_map.get(min_grades.get(sub, "C6"), 1) for sub in required_olevel)
     utme_valid = all(sub in utme_subjects for sub in required_utme)
     utme_any_valid = len([sub for sub in utme_subjects if sub in any_utme]) >= (4 - len(required_utme))
+    utme_score_valid = utme_score >= st.session_state.cutoff_marks.get(course, 180)
     
-    return olevel_valid and olevel_any_valid and grade_valid and utme_valid and utme_any_valid
+    return olevel_valid and olevel_any_valid and grade_valid and utme_valid and utme_any_valid and utme_score_valid
 
 def compute_grade_sum(olevel_subjects, course, parsed_requirements):
     req = parsed_requirements.get(course, {})
@@ -162,7 +161,6 @@ def calculate_capacity_utilization(admission_results, course_capacities):
         } for course in course_names
     }
 
-
 # --- Part 2: ML Models and Core Processing ---
 ELIGIBILITY_MODEL = None
 ELIGIBILITY_SCALER = None
@@ -195,42 +193,39 @@ def admin_login():
             st.session_state['is_admin'] = False
             st.success('Logged out.')
 
-
 def train_eligibility_model():
     global ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES
     logger.info("Training eligibility model")
     data = []
     parsed_req = get_course_requirements()
-    # Explicitly generate both eligible and ineligible samples for each course
     grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}
     for course in course_names:
         # Generate eligible samples
-        for _ in range(400):
+        for _ in range(500):
             utme = np.random.randint(st.session_state.cutoff_marks[course], 400)
             olevels = {}
-            reqs = get_course_requirements()[course]
+            reqs = parsed_req[course]
             for sub in reqs['olevel_required']:
-                olevels[sub] = grade_map['C6'] + np.random.choice([0,1,2])  # C6 or better
+                olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
             for sub in reqs['olevel_any']:
-                olevels[sub] = grade_map['C6'] + np.random.choice([0,1,2]) if np.random.rand() < 0.5 else 0
-            # Fill up to 5 subjects
-            for sub in common_subjects:
-                if sub not in olevels and len(olevels) < 5:
-                    olevels[sub] = grade_map['C6']
+                if np.random.rand() < 0.7:
+                    olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
+            while len(olevels) < 5:
+                sub = np.random.choice([s for s in common_subjects if s not in olevels])
+                olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
             utme_subjects = reqs['utme_required'][:]
             while len(utme_subjects) < 4:
-                extra = np.random.choice([s for s in common_subjects if s not in utme_subjects])
+                extra = np.random.choice([s for s in reqs['utme_any'] if s not in utme_subjects], replace=False)
                 utme_subjects.append(extra)
             interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2]), replace=False).tolist()
             learning = np.random.choice(list(learning_styles.keys()))
             state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
-            state_probs = np.array(state_probs)
-            state_probs = state_probs / state_probs.sum()
+            state_probs = np.array(state_probs) / np.sum(state_probs)
             state = np.random.choice(NIGERIAN_STATES, p=state_probs)
             gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
             features = {'utme': utme, 'eligible': 1}
             for sub in common_subjects:
-                features[sub] = olevels.get(sub, 9)
+                features[sub] = olevels.get(sub, 0)
             for utme_sub in common_subjects:
                 features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
             for int_ in interest_categories.keys():
@@ -241,35 +236,35 @@ def train_eligibility_model():
             features['course'] = course
             data.append(features)
         # Generate ineligible samples
-        for _ in range(400):
-            utme = np.random.randint(100, st.session_state.cutoff_marks[course])
+        for _ in range(500):
+            utme = np.random.randint(100, max(st.session_state.cutoff_marks[course], 101))
             olevels = {}
-            reqs = get_course_requirements()[course]
-            # Purposely miss at least one required subject or grade
+            reqs = parsed_req[course]
+            required_missing = np.random.choice(reqs['olevel_required']) if np.random.rand() < 0.5 else None
             for sub in reqs['olevel_required']:
-                olevels[sub] = grade_map['C6'] - 1  # Below minimum
-            for sub in reqs['olevel_any']:
-                olevels[sub] = grade_map['C6'] - 1 if np.random.rand() < 0.5 else 0
-            for sub in common_subjects:
-                if sub not in olevels and len(olevels) < 5:
+                if sub != required_missing:
+                    olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
+                else:
                     olevels[sub] = 0
+            for sub in reqs['olevel_any']:
+                if np.random.rand() < 0.5:
+                    olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
+            while len(olevels) < 5:
+                sub = np.random.choice([s for s in common_subjects if s not in olevels])
+                olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
             utme_subjects = reqs['utme_required'][:]
-            # Remove one required subject
-            if len(utme_subjects) > 1:
+            if np.random.rand() < 0.5 and len(utme_subjects) > 1:
                 utme_subjects = utme_subjects[:-1]
             while len(utme_subjects) < 4:
                 extra = np.random.choice([s for s in common_subjects if s not in utme_subjects])
                 utme_subjects.append(extra)
             interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2]), replace=False).tolist()
             learning = np.random.choice(list(learning_styles.keys()))
-            state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
-            state_probs = np.array(state_probs)
-            state_probs = state_probs / state_probs.sum()
             state = np.random.choice(NIGERIAN_STATES, p=state_probs)
             gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
             features = {'utme': utme, 'eligible': 0}
             for sub in common_subjects:
-                features[sub] = olevels.get(sub, 9)
+                features[sub] = olevels.get(sub, 0)
             for utme_sub in common_subjects:
                 features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
             for int_ in interest_categories.keys():
@@ -280,12 +275,9 @@ def train_eligibility_model():
             features['course'] = course
             data.append(features)
     df = pd.DataFrame(data)
-    # Ensure both eligible and ineligible samples exist
     eligible_counts = df['eligible'].value_counts()
     if len(eligible_counts) < 2:
-        # Not enough class diversity, regenerate with forced eligible/ineligible
         logger.warning("Synthetic data had only one eligibility class. Forcing both classes.")
-        # Force 100 eligible and 100 ineligible samples
         forced = []
         for val in [0, 1]:
             for i in range(100):
@@ -299,7 +291,7 @@ def train_eligibility_model():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
-    model = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42, class_weight='balanced')  # Reduced max_depth
+    model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, class_weight='balanced')
     model.fit(X_train_scaled, y_train)
     X_test_scaled = scaler.transform(X_test)
     y_pred = model.predict(X_test_scaled)
@@ -308,9 +300,7 @@ def train_eligibility_model():
     ELIGIBILITY_MODEL = model
     ELIGIBILITY_SCALER = scaler
     ELIGIBILITY_FEATURES = X.columns.tolist()
-    # Save model
     model_utils.save_model(model, scaler, ELIGIBILITY_FEATURES, 'eligibility')
-
 
 def train_scoring_model():
     global SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES
@@ -318,37 +308,39 @@ def train_scoring_model():
     data = []
     parsed_req = get_course_requirements()
     grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}
-    for _ in range(1500):
-        utme = np.clip(np.random.normal(210, 35) + np.random.normal(0, 7), 120, 400)
+    for _ in range(2000):
+        utme = np.clip(np.random.normal(220, 40), 120, 400)
         num_subjects = np.random.choice([5, 6], p=[0.7, 0.3])
         selected_olevel_subs = np.random.choice(common_subjects, num_subjects, replace=False)
         olevels = {sub: np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values())) for sub in selected_olevel_subs}
-        olevels = {k: grade_map.get(v, 1) + np.random.normal(0, 0.15) for k, v in olevels.items()}
-        utme_subjects = ["English Language"] + list(np.random.choice([s for s in common_subjects if s != "English Language"], 3, replace=False))
-        interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2], p=[0.7, 0.3]), replace=False).tolist()
-        learning = np.random.choice(list(learning_styles.keys()), p=[0.5, 0.25, 0.25])
-    state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
-    state_probs = np.array(state_probs)
-    state_probs = state_probs / state_probs.sum()
-    state = np.random.choice(NIGERIAN_STATES, p=state_probs)
-    gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
-    for course in course_names:
-            eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
-            score = 0
-            interest_weight = 0
+        olevels = {k: grade_map[v] + np.random.normal(0, 0.2) for k, v in olevels.items()}
+        utme_subjects = ["English Language"] + list(np.random.choice(
+            [s for s in common_subjects if s != "English Language"], 3, replace=False))
+        interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, len(interest_categories.keys()) + 1), replace=False).tolist()
+        learning = np.random.choice(list(learning_styles.keys()))
+        state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
+        state_probs = np.array(state_probs) / np.sum(state_probs)
+        state = np.random.choice(NIGERIAN_STATES, p=state_probs)
+        gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
+        for course in course_names:
+            eligible = is_eligible(olevels, utme_subjects, course, parsed_req, utme)
+            interest_weight = sum(1 for int_ in interests if course in interest_categories.get(int_, [])) * 0.3
+            if learning in learning_styles and course in learning_styles[learning]:
+                interest_weight += 0.2
             diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
             if eligible:
                 grade_sum, count = compute_grade_sum(olevels, course, parsed_req)
-                interest_weight = sum(1 for int_ in interests if course in interest_categories.get(int_, [])) * 0.3
-                if learning in learning_styles and course in learning_styles[learning]:
-                    interest_weight += 0.2
                 score = compute_enhanced_score(utme, grade_sum, count, interest_weight, diversity_score)
+            else:
+                grade_sum, count = compute_grade_sum(olevels, course, parsed_req)
+                score = compute_enhanced_score(utme * 0.7, grade_sum * 0.7, count, interest_weight * 0.5, diversity_score * 0.5)
+                score = max(score, 0.1)  # Ensure non-zero score for ineligible cases
             features = {
                 'utme': utme,
                 'score': score
             }
             for sub in common_subjects:
-                features[sub] = olevels.get(sub, 9)
+                features[sub] = olevels.get(sub, 0)
             for utme_sub in common_subjects:
                 features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
             for int_ in interest_categories.keys():
@@ -365,7 +357,7 @@ def train_scoring_model():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
-    model = RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42)  # Reduced max_depth
+    model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
     model.fit(X_train_scaled, y_train)
     X_test_scaled = scaler.transform(X_test)
     y_pred = model.predict(X_test_scaled)
@@ -374,9 +366,7 @@ def train_scoring_model():
     SCORING_MODEL = model
     SCORING_SCALER = scaler
     SCORING_FEATURES = X.columns.tolist()
-    # Save model
     model_utils.save_model(model, scaler, SCORING_FEATURES, 'scoring')
-
 
 # Load models if available, else train and save
 ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES = model_utils.load_model('eligibility')
@@ -392,13 +382,16 @@ if SCORING_MODEL is None:
 def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selected_interests, learning_style, state, gender):
     global ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES, SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES
     results = []
+    parsed_req = get_course_requirements()
     diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
+    logger.debug(f"Input features: utme_score={utme_score}, olevel_subjects={olevel_subjects}, utme_subjects={utme_subjects}, "
+                 f"interests={selected_interests}, learning_style={learning_style}, state={state}, gender={gender}")
     for course in course_names:
         features = {
             'utme': utme_score,
         }
         for sub in common_subjects:
-            features[sub] = olevel_subjects.get(sub, 9)
+            features[sub] = olevel_subjects.get(sub, 0)
         for utme_sub in common_subjects:
             features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
         for int_ in interest_categories.keys():
@@ -409,7 +402,10 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selec
         for c in course_names:
             features[f'course_{c}'] = 1 if c == course else 0
 
-        # Predict eligibility using ML model with probability threshold
+        # Rule-based eligibility check
+        rule_eligible = is_eligible(olevel_subjects, utme_subjects, course, parsed_req, utme_score)
+        
+        # Predict eligibility using ML model
         features_df = pd.DataFrame([features])
         for feature in ELIGIBILITY_FEATURES:
             if feature not in features_df.columns:
@@ -417,12 +413,8 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selec
         features_df = features_df[ELIGIBILITY_FEATURES]
         X_scaled = ELIGIBILITY_SCALER.transform(features_df)
         proba = ELIGIBILITY_MODEL.predict_proba(X_scaled)[0]
-        if len(ELIGIBILITY_MODEL.classes_) == 2:
-            eligible_prob = proba[1]  # class 1 = eligible
-        else:
-            # Only one class in training, fallback
-            eligible_prob = 1.0 if ELIGIBILITY_MODEL.classes_[0] == 1 else 0.0
-        eligible = eligible_prob > 0.5  # Threshold for eligibility
+        eligible_prob = proba[1] if len(ELIGIBILITY_MODEL.classes_) == 2 else (1.0 if ELIGIBILITY_MODEL.classes_[0] == 1 else 0.0)
+        eligible = eligible_prob > 0.5 and rule_eligible  # Combine ML and rule-based eligibility
 
         # Predict score using ML model
         features_df = pd.DataFrame([features])
@@ -432,39 +424,47 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selec
         features_df = features_df[SCORING_FEATURES]
         X_scaled = SCORING_SCALER.transform(features_df)
         score = SCORING_MODEL.predict(X_scaled)[0]
+        if not eligible:
+            score = score * 0.5  # Penalize score for ineligible courses
 
         interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_, [])) * 0.3
         if learning_style in learning_styles and course in learning_styles[learning_style]:
             interest_weight += 0.2
 
+        logger.debug(f"Course: {course}, Eligible: {eligible}, Eligible Prob: {eligible_prob:.2f}, Score: {score:.2f}, "
+                     f"Interest Weight: {interest_weight:.2f}, Diversity Score: {diversity_score:.2f}")
+        
         results.append({
             "course": course,
             "eligible": eligible,
             "score": score,
             "interest_weight": interest_weight,
             "diversity_score": diversity_score,
-            "eligible_prob": eligible_prob  # For debugging
+            "eligible_prob": eligible_prob
         })
 
     results_df = pd.DataFrame(results)
-    eligible_courses = results_df[results_df["eligible"] & (results_df["score"] > 0)]
+    logger.debug(f"Results DataFrame:\n{results_df}")
+    eligible_courses = results_df[results_df["eligible"] & (results_df["score"] >= 0)]
     if eligible_courses.empty:
+        logger.warning(f"No eligible courses found. Highest eligibility prob: {results_df['eligible_prob'].max():.2f}")
         return {
             "predicted_program": "UNASSIGNED",
             "score": 0,
-            "reason": f"No eligible courses based on ML prediction (highest eligibility prob: {results_df['eligible_prob'].max():.2f})",
+            "reason": f"No eligible courses based on combined ML and rule-based prediction (highest eligibility prob: {results_df['eligible_prob'].max():.2f})",
             "all_eligible": pd.DataFrame(),
             "suggestions": [
-                "Ensure UTME score meets course cutoffs (e.g., 200 for Computer Science)",
-                "Verify 5+ O'Level subjects with grades C6 or better",
-                "Select relevant UTME subjects for the course"
+                f"Ensure UTME score meets course cutoffs (e.g., {', '.join([f'{k}: {v}' for k, v in st.session_state.cutoff_marks.items()])})",
+                "Verify 5+ O'Level subjects with grades C6 or better for required subjects",
+                f"Select relevant UTME subjects: {parsed_req}"
             ]
         }
     best_course = eligible_courses.loc[eligible_courses["score"].idxmax()]
+    logger.info(f"Best course: {best_course['course']}, Score: {best_course['score']:.2f}")
     return {
         "predicted_program": best_course["course"],
         "score": best_course["score"],
-        "reason": "Best match based on ML prediction",
+        "reason": "Best match based on ML prediction and rule-based eligibility",
         "all_eligible": eligible_courses.sort_values("score", ascending=False),
         "interest_alignment": best_course["interest_weight"] > 0
     }
@@ -659,12 +659,10 @@ async def process_with_timeout(coro, timeout=300):
         st.error(f"Processing timed out after {timeout} seconds. Try uploading a smaller CSV or check the logs.")
         return [], pd.DataFrame(), [{'row': 0, 'student_id': 'N/A', 'error': 'Processing timed out'}]
 
-
 def main():
     st.title("🎓 FUTA Intelligent Admission Management System (ML-Based)")
     st.markdown("Welcome to the Federal University of Technology, Akure Admission Management System. This system uses machine learning models to predict eligibility and course placement scores.")
 
-    # Admin login sidebar
     admin_login()
 
     if 'form_key_counter' not in st.session_state:
@@ -687,7 +685,6 @@ def main():
                 train_eligibility_model()
                 train_scoring_model()
                 st.success("Models retrained and saved.")
-        # Feature importance visualization
         with st.expander("Show Model Feature Importances"):
             st.write("Eligibility Model Feature Importances:")
             if ELIGIBILITY_MODEL is not None and hasattr(ELIGIBILITY_MODEL, 'feature_importances_'):
@@ -699,7 +696,6 @@ def main():
                 st.bar_chart(feat_imp2.head(15))
         st.header("Individual Admission Prediction")
         form_key = f"individual_prediction_form_{st.session_state.form_key_counter}"
-        # Reset form state for each new prediction
         if 'last_form_key' not in st.session_state or st.session_state.last_form_key != form_key:
             st.session_state.last_form_key = form_key
             st.session_state[f"name_{st.session_state.form_key_counter}"] = ""
@@ -815,8 +811,8 @@ def main():
         st.write("Upload a CSV file with student data to process admissions in bulk.")
         st.markdown("""
             **Expected CSV Format**:
-            - Columns: `student_id`, `name`, `utme_score`, `preferred_course`, `utme_subjects` (comma-separated, e.g., "English Language,Mathematics,Physics,Chemistry"), 
-              `interests` (comma-separated, e.g., "Problem Solving & Logic,Technology & Innovation"), 
+            - Columns: `student_id`, `name`, `utme_score`, `preferred_course`, `utme_subjects` (comma-separated, e.g., "English Language,Mathematics,Physics,Chemistry"),
+              `interests` (comma-separated, e.g., "Problem Solving & Logic,Technology & Innovation"),
               `learning_style`, `state_of_origin`, `gender`, and O'Level grades (e.g., `english_language_grade`, `mathematics_grade`, `physics_grade`).
             - Ensure at least 5 O'Level subjects with valid grades (A1, B2, B3, C4, C5, C6).
         """)

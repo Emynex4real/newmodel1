@@ -1,16 +1,17 @@
-# This file will be used to save and load trained models
 import joblib
+import os
 
 MODEL_PATHS = {
-    'eligibility': 'eligibility_model.pkl',
-    'eligibility_scaler': 'eligibility_scaler.pkl',
-    'eligibility_features': 'eligibility_features.pkl',
-    'scoring': 'scoring_model.pkl',
-    'scoring_scaler': 'scoring_scaler.pkl',
-    'scoring_features': 'scoring_features.pkl',
+    'eligibility': '/tmp/eligibility_model.pkl',
+    'eligibility_scaler': '/tmp/eligibility_scaler.pkl',
+    'eligibility_features': '/tmp/eligibility_features.pkl',
+    'scoring': '/tmp/scoring_model.pkl',
+    'scoring_scaler': '/tmp/scoring_scaler.pkl',
+    'scoring_features': '/tmp/scoring_features.pkl',
 }
 
 def save_model(model, scaler, features, prefix):
+    os.makedirs('/tmp', exist_ok=True)
     joblib.dump(model, MODEL_PATHS[f'{prefix}'])
     joblib.dump(scaler, MODEL_PATHS[f'{prefix}_scaler'])
     joblib.dump(features, MODEL_PATHS[f'{prefix}_features'])
@@ -21,5 +22,6 @@ def load_model(prefix):
         scaler = joblib.load(MODEL_PATHS[f'{prefix}_scaler'])
         features = joblib.load(MODEL_PATHS[f'{prefix}_features'])
         return model, scaler, features
-    except Exception:
+    except Exception as e:
+        print(f"Error loading model {prefix}: {str(e)}")
         return None, None, None
