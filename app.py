@@ -1,4 +1,5 @@
 # Consolidated Imports
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,6 +15,7 @@ import io
 from datetime import datetime
 import plotly.express as px
 import asyncio
+import model_utils
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -160,6 +162,7 @@ def calculate_capacity_utilization(admission_results, course_capacities):
         } for course in course_names
     }
 
+
 # --- Part 2: ML Models and Core Processing ---
 ELIGIBILITY_MODEL = None
 ELIGIBILITY_SCALER = None
@@ -167,6 +170,31 @@ ELIGIBILITY_FEATURES = None
 SCORING_MODEL = None
 SCORING_SCALER = None
 SCORING_FEATURES = None
+
+# --- Editable cutoffs and capacities (admin only) ---
+if 'cutoff_marks' not in st.session_state:
+    st.session_state.cutoff_marks = cutoff_marks.copy()
+if 'course_capacities' not in st.session_state:
+    st.session_state.course_capacities = {c: 100 for c in course_names}
+
+# --- Simple authentication (admin password) ---
+def is_admin():
+    return st.session_state.get('is_admin', False)
+
+def admin_login():
+    with st.sidebar:
+        st.subheader('Admin Login')
+        pw = st.text_input('Enter admin password', type='password', key='admin_pw')
+        if st.button('Login', key='admin_login_btn'):
+            if pw == 'futa2025':
+                st.session_state['is_admin'] = True
+                st.success('Admin login successful!')
+            else:
+                st.error('Incorrect password.')
+        if st.button('Logout', key='admin_logout_btn'):
+            st.session_state['is_admin'] = False
+            st.success('Logged out.')
+
 
 def train_eligibility_model():
     global ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES
@@ -186,9 +214,8 @@ def train_eligibility_model():
         learning = np.random.choice(list(learning_styles.keys()))
         state = np.random.choice(NIGERIAN_STATES)
         gender = np.random.choice(["Male", "Female", "Other"])
-        
         for course in course_names:
-            eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= cutoff_marks.get(course, 180)
+            eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
             features = {
                 'utme': utme,
                 'eligible': 1 if eligible else 0
@@ -204,7 +231,6 @@ def train_eligibility_model():
             features['diversity_score'] = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
             features['course'] = course
             data.append(features)
-
     df = pd.DataFrame(data)
     df = pd.get_dummies(df, columns=['course'])
     X = df.drop('eligible', axis=1)
@@ -221,6 +247,9 @@ def train_eligibility_model():
     ELIGIBILITY_MODEL = model
     ELIGIBILITY_SCALER = scaler
     ELIGIBILITY_FEATURES = X.columns.tolist()
+    # Save model
+    model_utils.save_model(model, scaler, ELIGIBILITY_FEATURES, 'eligibility')
+
 
 def train_scoring_model():
     global SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES
@@ -240,9 +269,8 @@ def train_scoring_model():
         learning = np.random.choice(list(learning_styles.keys()))
         state = np.random.choice(NIGERIAN_STATES)
         gender = np.random.choice(["Male", "Female", "Other"])
-        
         for course in course_names:
-            eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= cutoff_marks.get(course, 180)
+            eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
             score = 0
             interest_weight = 0
             diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
@@ -252,7 +280,6 @@ def train_scoring_model():
                 if learning in learning_styles and course in learning_styles[learning]:
                     interest_weight += 0.2
                 score = compute_enhanced_score(utme, grade_sum, count, interest_weight, diversity_score)
-            
             features = {
                 'utme': utme,
                 'score': score
@@ -268,7 +295,6 @@ def train_scoring_model():
             features['diversity_score'] = diversity_score
             features['course'] = course
             data.append(features)
-
     df = pd.DataFrame(data)
     df = pd.get_dummies(df, columns=['course'])
     X = df.drop('score', axis=1)
@@ -285,10 +311,20 @@ def train_scoring_model():
     SCORING_MODEL = model
     SCORING_SCALER = scaler
     SCORING_FEATURES = X.columns.tolist()
+    # Save model
+    model_utils.save_model(model, scaler, SCORING_FEATURES, 'scoring')
 
-# Initialize models
-train_eligibility_model()
-train_scoring_model()
+
+# Load models if available, else train and save
+ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES = model_utils.load_model('eligibility')
+if ELIGIBILITY_MODEL is None:
+    train_eligibility_model()
+    ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES = model_utils.load_model('eligibility')
+
+SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES = model_utils.load_model('scoring')
+if SCORING_MODEL is None:
+    train_scoring_model()
+    SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES = model_utils.load_model('scoring')
 
 def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selected_interests, learning_style, state, gender):
     global ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES, SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES
@@ -555,18 +591,44 @@ async def process_with_timeout(coro, timeout=300):
         st.error(f"Processing timed out after {timeout} seconds. Try uploading a smaller CSV or check the logs.")
         return [], pd.DataFrame(), [{'row': 0, 'student_id': 'N/A', 'error': 'Processing timed out'}]
 
+
 def main():
     st.title("🎓 FUTA Intelligent Admission Management System (ML-Based)")
     st.markdown("Welcome to the Federal University of Technology, Akure Admission Management System. This system uses machine learning models to predict eligibility and course placement scores.")
+
+    # Admin login sidebar
+    admin_login()
 
     if 'form_key_counter' not in st.session_state:
         st.session_state.form_key_counter = 0
     if 'uploader_key' not in st.session_state:
         st.session_state.uploader_key = 0
 
-    tab1, tab2, tab3 = st.tabs(["Individual Admission", "Batch Processing", "Analytics & Insights"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Individual Admission", "Batch Processing", "Analytics & Insights", "Help/FAQ"])
 
     with tab1:
+        if is_admin():
+            st.info("You are logged in as admin. You can edit cutoffs and capacities below.")
+            with st.expander("Edit Course Cutoffs and Capacities (Admin Only)"):
+                for course in course_names:
+                    st.session_state.cutoff_marks[course] = st.number_input(f"Cutoff for {course}", min_value=100, max_value=400, value=st.session_state.cutoff_marks[course], key=f"cutoff_{course}")
+                    st.session_state.course_capacities[course] = st.number_input(f"Capacity for {course}", min_value=1, max_value=1000, value=st.session_state.course_capacities[course], key=f"capacity_{course}")
+                if st.button("Save Admin Settings", key="save_admin_settings"):
+                    st.success("Settings saved. Retrain models for changes to take effect.")
+            if st.button("Retrain Models (Admin)", key="retrain_models"):
+                train_eligibility_model()
+                train_scoring_model()
+                st.success("Models retrained and saved.")
+        # Feature importance visualization
+        with st.expander("Show Model Feature Importances"):
+            st.write("Eligibility Model Feature Importances:")
+            if ELIGIBILITY_MODEL is not None and hasattr(ELIGIBILITY_MODEL, 'feature_importances_'):
+                feat_imp = pd.Series(ELIGIBILITY_MODEL.feature_importances_, index=ELIGIBILITY_FEATURES).sort_values(ascending=False)
+                st.bar_chart(feat_imp.head(15))
+            st.write("Scoring Model Feature Importances:")
+            if SCORING_MODEL is not None and hasattr(SCORING_MODEL, 'feature_importances_'):
+                feat_imp2 = pd.Series(SCORING_MODEL.feature_importances_, index=SCORING_FEATURES).sort_values(ascending=False)
+                st.bar_chart(feat_imp2.head(15))
         st.header("Individual Admission Prediction")
         form_key = f"individual_prediction_form_{st.session_state.form_key_counter}"
 
@@ -849,7 +911,6 @@ def main():
                     else:
                         course_capacities = get_dynamic_course_capacities(df)
                         demand_analysis = analyze_student_demand(df)
-                        
                         st.subheader("Student Demand Analysis")
                         demand_df = pd.DataFrame.from_dict(demand_analysis, orient='index').reset_index()
                         demand_df.columns = ['Course', 'Primary Demand', 'Secondary Demand', 'Total Estimated Demand', 'Demand Category']
@@ -864,7 +925,6 @@ def main():
                             },
                             hide_index=True
                         )
-                        
                         st.subheader("Capacity Optimization Suggestions")
                         capacity_suggestions = optimize_course_capacities(
                             {k: v['total_estimated_demand'] for k, v in demand_analysis.items()},
@@ -884,7 +944,6 @@ def main():
                                 },
                                 hide_index=True
                             )
-                        
                         if 'admitted_course' in df.columns:
                             st.subheader("Capacity Utilization")
                             admission_results = run_intelligent_admission_algorithm_v2(df.to_dict('records'), course_capacities)
@@ -903,7 +962,6 @@ def main():
                                 },
                                 hide_index=True
                             )
-                            
                             st.subheader("Utilization Visualization")
                             fig = px.bar(
                                 utilization_df,
@@ -920,6 +978,30 @@ def main():
                     logger.error(f"Error in analytics processing: {str(e)}")
                     logger.error(traceback.format_exc())
                     st.error(f"Error processing analytics: {str(e)}. Please check the file format and refer to the logs for details.")
+    with tab4:
+        st.header("Help & FAQ")
+        st.markdown("""
+        **What is this system?**
+        
+        This is an intelligent, machine learning-based admission management system for FUTA. It predicts course placements for students based on UTME score, O'Level grades, UTME subjects, interests, learning style, state of origin, and gender.
+        
+        **How does it work?**
+        
+        - Uses two ML models: RandomForestClassifier for eligibility (binary) and RandomForestRegressor for scoring (continuous 0-1).
+        - Models are trained on synthetic data with realistic distributions and noise.
+        - The system supports individual and batch admission predictions, analytics, and admin controls.
+        
+        **Admin Features:**
+        - Login as admin (password: `futa2025`) to edit course cutoffs/capacities and retrain models.
+        - View feature importances for transparency.
+        
+        **Data Requirements:**
+        - For batch processing, upload a CSV with columns: student_id, name, utme_score, preferred_course, utme_subjects, interests, learning_style, state_of_origin, gender, and O'Level grades.
+        
+        **Troubleshooting:**
+        - If you see 'No eligible courses', check your UTME score, O'Level grades, and subject selections.
+        - For errors, check the logs or contact the admin.
+        """)
 
 if __name__ == "__main__":
     main()
