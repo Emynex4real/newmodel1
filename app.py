@@ -1765,7 +1765,7 @@ def main():
 
             if reset_button:
                 st.session_state.form_key += 1  # Increment key to reset form inputs
-                st.experimental_rerun()  # Force rerun to clear form
+                st.rerun()  # Force rerun to clear form
 
             if submit_button:
                 logger.info("Individual admission form submitted: name=%s, utme_score=%s, utme_subjects=%s, interests=%s, olevel_subjects=%s",
