@@ -378,7 +378,12 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selec
                 features_df[feature] = 0
         features_df = features_df[ELIGIBILITY_FEATURES]
         X_scaled = ELIGIBILITY_SCALER.transform(features_df)
-        eligible_prob = ELIGIBILITY_MODEL.predict_proba(X_scaled)[0][1]  # Probability of eligible (class 1)
+        proba = ELIGIBILITY_MODEL.predict_proba(X_scaled)[0]
+        if len(ELIGIBILITY_MODEL.classes_) == 2:
+            eligible_prob = proba[1]  # class 1 = eligible
+        else:
+            # Only one class in training, fallback
+            eligible_prob = 1.0 if ELIGIBILITY_MODEL.classes_[0] == 1 else 0.0
         eligible = eligible_prob > 0.5  # Threshold for eligibility
 
         # Predict score using ML model
