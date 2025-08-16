@@ -720,7 +720,6 @@ def main():
             utme_subjects = st.multiselect(
                 "Select 4 UTME Subjects (English Language is mandatory)",
                 common_subjects,
-                default=["English Language"],
                 max_selections=4,
                 key=f"utme_subjects_{st.session_state.form_key_counter}"
             )
