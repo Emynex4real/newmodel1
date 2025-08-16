@@ -217,10 +217,14 @@ def train_eligibility_model():
         interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2], p=[0.7, 0.3]), replace=False).tolist()
         # Learning style: Analytical most common
         learning = np.random.choice(list(learning_styles.keys()), p=[0.5, 0.25, 0.25])
-        # State: North, South, and Lagos more common
-        state = np.random.choice(NIGERIAN_STATES, p=[0.03]*10 + [0.04]*10 + [0.06]*10 + [0.15])
-        gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
-        for course in course_names:
+    # State: North, South, and Lagos more common
+    # Build a probability vector of length 37 (for 37 states)
+    state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]  # 10+10+5+10+1+1=37
+    state_probs = np.array(state_probs)
+    state_probs = state_probs / state_probs.sum()  # Normalize to sum to 1
+    state = np.random.choice(NIGERIAN_STATES, p=state_probs)
+    gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
+    for course in course_names:
             eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
             features = {
                 'utme': utme,
@@ -272,9 +276,12 @@ def train_scoring_model():
         utme_subjects = ["English Language"] + list(np.random.choice([s for s in common_subjects if s != "English Language"], 3, replace=False))
         interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2], p=[0.7, 0.3]), replace=False).tolist()
         learning = np.random.choice(list(learning_styles.keys()), p=[0.5, 0.25, 0.25])
-        state = np.random.choice(NIGERIAN_STATES, p=[0.03]*10 + [0.04]*10 + [0.06]*10 + [0.15])
-        gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
-        for course in course_names:
+    state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
+    state_probs = np.array(state_probs)
+    state_probs = state_probs / state_probs.sum()
+    state = np.random.choice(NIGERIAN_STATES, p=state_probs)
+    gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
+    for course in course_names:
             eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
             score = 0
             interest_weight = 0
