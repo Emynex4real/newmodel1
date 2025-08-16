@@ -1841,44 +1841,43 @@ def create_comprehensive_admission_report(admission_results, original_df, course
     return detailed_results, summary_stats, course_breakdown
 
 # ... (Other imports and functions from Part 3 remain unchanged)
-def handler(signum, frame):
-    raise TimeoutError("Processing timed out")
+async def process_with_timeout(coro, timeout=300):
+    """Run an async coroutine with a timeout"""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error("Processing timed out after %s seconds", timeout)
+        st.error(f"Processing timed out after {timeout} seconds. Try uploading a smaller CSV or check the logs.")
+        return [], pd.DataFrame(), [{'row': 0, 'student_id': 'N/A', 'error': 'Processing timed out'}]
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime
-import io
-import logging
-import traceback
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-import plotly.express as px
-import asyncio
-
-# ... (Other imports and functions from Part 3 remain unchanged)
 def main():
     """Main Streamlit app"""
     st.title("🎓 FUTA Intelligent Admission Management System")
     st.markdown("Welcome to the Federal University of Technology, Akure Admission Management System. This system uses advanced algorithms to optimize student placements.")
 
+    # Initialize session state for form key
+    if 'form_key_counter' not in st.session_state:
+        st.session_state.form_key_counter = 0
+    if 'uploader_key' not in st.session_state:
+        st.session_state.uploader_key = 0
+
     tab1, tab2, tab3 = st.tabs(["Individual Admission", "Batch Processing", "Analytics & Insights"])
 
     with tab1:
         st.header("Individual Admission Prediction")
-        if 'form_key' not in st.session_state:
-            st.session_state.form_key = 0
+        # Generate unique form key
+        form_key = f"individual_prediction_form_{st.session_state.form_key_counter}"
 
-        with st.form("individual_prediction_form", clear_on_submit=True):
+        with st.form(form_key, clear_on_submit=True):
             st.subheader("Candidate Information")
             col1, col2 = st.columns(2)
             with col1:
-                name = st.text_input("Full Name", placeholder="Enter your full name", key=f"name_{st.session_state.form_key}")
-                state = st.selectbox("State of Origin", NIGERIAN_STATES, index=28, key=f"state_{st.session_state.form_key}")
-                gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"gender_{st.session_state.form_key}")
+                name = st.text_input("Full Name", placeholder="Enter your full name", key=f"name_{st.session_state.form_key_counter}")
+                state = st.selectbox("State of Origin", NIGERIAN_STATES, index=28, key=f"state_{st.session_state.form_key_counter}")
+                gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"gender_{st.session_state.form_key_counter}")
             with col2:
-                utme_score = st.number_input("UTME Score", min_value=0, max_value=400, step=1, key=f"utme_score_{st.session_state.form_key}")
-                learning_style = st.selectbox("Learning Style", list(learning_styles.keys()), index=2, key=f"learning_style_{st.session_state.form_key}")
+                utme_score = st.number_input("UTME Score", min_value=0, max_value=400, step=1, key=f"utme_score_{st.session_state.form_key_counter}")
+                learning_style = st.selectbox("Learning Style", list(learning_styles.keys()), index=2, key=f"learning_style_{st.session_state.form_key_counter}")
 
             st.subheader("UTME Subjects")
             utme_subjects = st.multiselect(
@@ -1886,7 +1885,7 @@ def main():
                 common_subjects,
                 default=["English Language"],
                 max_selections=4,
-                key=f"utme_subjects_{st.session_state.form_key}"
+                key=f"utme_subjects_{st.session_state.form_key_counter}"
             )
             utme_subjects = utme_subjects if utme_subjects is not None else []
 
@@ -1896,14 +1895,14 @@ def main():
             for i in range(5):
                 col1, col2 = st.columns(2)
                 with col1:
-                    subject = st.selectbox(f"O'Level Subject {i+1}", [""] + common_subjects, key=f"olevel_sub_{i}_{st.session_state.form_key}")
+                    subject = st.selectbox(f"O'Level Subject {i+1}", [""] + common_subjects, key=f"olevel_sub_{i}_{st.session_state.form_key_counter}")
                 with col2:
-                    grade = st.selectbox(f"Grade {i+1}", list(grade_map.keys()), key=f"olevel_grade_{i}_{st.session_state.form_key}")
+                    grade = st.selectbox(f"Grade {i+1}", list(grade_map.keys()), key=f"olevel_grade_{i}_{st.session_state.form_key_counter}")
                 if subject and subject != "":
                     olevel_subjects[subject] = grade_map[grade]
 
             st.subheader("Interests")
-            interests = st.multiselect("Select Your Interests", list(interest_categories.keys()), key=f"interests_{st.session_state.form_key}")
+            interests = st.multiselect("Select Your Interests", list(interest_categories.keys()), key=f"interests_{st.session_state.form_key_counter}")
             interests = interests if interests is not None else []
 
             col_submit, col_reset = st.columns(2)
@@ -1913,7 +1912,7 @@ def main():
                 reset_button = st.form_submit_button("Reset Form")
 
             if reset_button:
-                st.session_state.form_key += 1
+                st.session_state.form_key_counter += 1
                 st.rerun()
 
             if submit_button:
@@ -1964,7 +1963,7 @@ def main():
                                     },
                                     hide_index=True
                                 )
-                        st.session_state.form_key += 1
+                        st.session_state.form_key_counter += 1
                     except Exception as e:
                         logger.error(f"Error during individual prediction: {str(e)}")
                         logger.error(traceback.format_exc())
@@ -1980,152 +1979,172 @@ def main():
               `learning_style`, `state_of_origin`, `gender`, and O'Level grades (e.g., `english_language_grade`, `mathematics_grade`, `physics_grade`).
             - Ensure at least 5 O'Level subjects with valid grades (A1, B2, B3, C4, C5, C6).
         """)
-        uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key="batch_uploader")
+        uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key=f"batch_uploader_{st.session_state.uploader_key}")
         if uploaded_file:
-            try:
-                df = pd.read_csv(uploaded_file)
-                logger.info("CSV file uploaded: %s rows", len(df))
-                if df.empty:
-                    st.error("The uploaded CSV file is empty.")
-                    logger.error("Empty CSV file uploaded")
-                else:
-                    # Initialize progress bar
-                    progress_bar = st.progress(0)
-                    progress_text = st.empty()
-                    def update_progress(progress):
-                        progress_bar.progress(min(progress, 1.0))
-                        progress_text.text(f"Processing: {int(progress * 100)}%")
-
-                    course_capacities = get_dynamic_course_capacities(df)
-                    # Run async processing
-                    admission_results, eligible_courses_df, invalid_rows = asyncio.run(
-                        process_csv_applications(df, course_capacities, update_progress)
-                    )
-
-                    if invalid_rows:
-                        st.warning(f"Skipped {len(invalid_rows)} invalid rows. Check details below.")
-                        st.dataframe(
-                            pd.DataFrame(invalid_rows),
-                            column_config={
-                                'row': 'Row Number',
-                                'student_id': 'Student ID',
-                                'error': 'Error Message'
-                            },
-                            hide_index=True
-                        )
-
-                    if not admission_results:
-                        st.error("No admission results generated. Check the CSV file for errors and refer to the logs for details.")
+            with st.spinner("Validating CSV file..."):
+                try:
+                    df = pd.read_csv(uploaded_file)
+                    logger.info("CSV file uploaded: %s rows, columns: %s", len(df), list(df.columns))
+                    if df.empty:
+                        st.error("The uploaded CSV file is empty.")
+                        logger.error("Empty CSV file uploaded")
                     else:
-                        detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
-                        
-                        st.subheader("Admission Summary")
-                        for key, value in summary_stats.items():
-                            st.write(f"**{key}**: {value}")
-                        
-                        st.subheader("Course-wise Admission Breakdown")
-                        st.dataframe(
-                            course_breakdown,
-                            column_config={
-                                "admitted_course": "Course",
-                                "Students_Admitted": st.column_config.NumberColumn("Students Admitted"),
-                                "Avg_Score": st.column_config.NumberColumn("Average Score", format="%.2f"),
-                                "Min_Score": st.column_config.NumberColumn("Minimum Score", format="%.2f"),
-                                "Max_Score": st.column_config.NumberColumn("Maximum Score", format="%.2f"),
-                                "Capacity": st.column_config.NumberColumn("Capacity"),
-                                "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f")
-                            },
-                            hide_index=True
-                        )
-                        
-                        st.subheader("Detailed Admission Results")
-                        st.dataframe(
-                            detailed_results,
-                            column_config={
-                                "student_id": "Student ID",
-                                "name": "Name",
-                                "utme_score": st.column_config.NumberColumn("UTME Score"),
-                                "preferred_course": "Preferred Course",
-                                "admitted_course": "Admitted Course",
-                                "status": "Admission Status",
-                                "score": st.column_config.NumberColumn("Score", format="%.2f"),
-                                "rank": st.column_config.NumberColumn("Rank"),
-                                "admission_type": "Admission Type",
-                                "reason": "Reason",
-                                "original_preference": "Original Preference",
-                                "recommendation_reason": "Recommendation Reason",
-                                "available_alternatives": st.column_config.NumberColumn("Available Alternatives"),
-                                "suggested_alternatives": "Suggested Alternatives"
-                            },
-                            hide_index=True
-                        )
-                        
-                        # Create recommended courses DataFrame
-                        recommended_courses_df = detailed_results[['student_id', 'name', 'admitted_course', 'status', 'suggested_alternatives']].copy()
-                        recommended_courses_df['recommended_course'] = recommended_courses_df.apply(
-                            lambda row: row['admitted_course'] if row['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']
-                            else (row['suggested_alternatives'][0] if row['suggested_alternatives'] else 'NONE'),
-                            axis=1
-                        )
-                        
-                        # Generate Excel file
-                        excel_buffer = io.BytesIO()
-                        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                            eligible_courses_df.to_excel(writer, sheet_name='Eligible Courses', index=False)
-                            recommended_courses_df.to_excel(writer, sheet_name='Recommended Courses', index=False)
-                        excel_buffer.seek(0)
-                        
-                        st.subheader("Download Course Eligibility Report")
-                        st.download_button(
-                            label="Download Course Eligibility Excel Report",
-                            data=excel_buffer,
-                            file_name=f"course_eligibility_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                        
-                        st.subheader("Download Admission Letters")
-                        for result in admission_results:
-                            if result['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']:
-                                student_data = {
-                                    'name': result.get('name', 'Student'),
-                                    'student_id': result['student_id'],
-                                    'admitted_course': result['admitted_course'],
-                                    'admission_type': result['admission_type'],
-                                    'status': result['status'],
-                                    'original_preference': result.get('original_preference', ''),
-                                    'recommendation_reason': result.get('recommendation_reason', '')
-                                }
-                                pdf_buffer = generate_admission_letter(student_data)
-                                st.download_button(
-                                    label=f"Download Admission Letter for {student_data['name']} ({student_data['student_id']})",
-                                    data=pdf_buffer,
-                                    file_name=f"admission_letter_{student_data['student_id']}.pdf",
-                                    mime="application/pdf"
+                        # Validate CSV columns
+                        required_columns = [
+                            'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
+                            'interests', 'learning_style', 'state_of_origin', 'gender',
+                            'english_language_grade', 'mathematics_grade'
+                        ]
+                        missing_columns = [col for col in required_columns if col not in df.columns]
+                        if missing_columns:
+                            st.error(f"Missing required columns: {', '.join(missing_columns)}")
+                            logger.error("Missing required columns: %s", missing_columns)
+                        else:
+                            # Initialize progress bar
+                            progress_bar = st.progress(0)
+                            progress_text = st.empty()
+                            def update_progress(progress):
+                                progress_bar.progress(min(progress, 1.0))
+                                progress_text.text(f"Processing: {int(progress * 100)}%")
+
+                            course_capacities = get_dynamic_course_capacities(df)
+                            logger.info("Starting async CSV processing")
+                            admission_results, eligible_courses_df, invalid_rows = asyncio.run(
+                                process_with_timeout(
+                                    process_csv_applications(df, course_capacities, update_progress)
                                 )
-                        
-                        csv_buffer = io.StringIO()
-                        detailed_results.to_csv(csv_buffer, index=False)
-                        csv_buffer.seek(0)
-                        st.download_button(
-                            label="Download Full Admission Report",
-                            data=csv_buffer.getvalue(),
-                            file_name=f"admission_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv"
-                        )
-            except Exception as e:
-                logger.error(f"Error processing CSV file: {str(e)}")
-                logger.error(traceback.format_exc())
-                st.error(f"Error processing CSV file: {str(e)}. Please check the file format and refer to the logs for details.")
+                            )
+                            logger.info("Async CSV processing completed")
+
+                            if invalid_rows:
+                                st.warning(f"Skipped {len(invalid_rows)} invalid rows. Check details below.")
+                                st.dataframe(
+                                    pd.DataFrame(invalid_rows),
+                                    column_config={
+                                        'row': 'Row Number',
+                                        'student_id': 'Student ID',
+                                        'error': 'Error Message'
+                                    },
+                                    hide_index=True
+                                )
+
+                            if not admission_results:
+                                st.error("No admission results generated. Check the CSV file for errors and refer to the logs for details.")
+                            else:
+                                detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
+                                
+                                st.subheader("Admission Summary")
+                                for key, value in summary_stats.items():
+                                    st.write(f"**{key}**: {value}")
+                                
+                                st.subheader("Course-wise Admission Breakdown")
+                                st.dataframe(
+                                    course_breakdown,
+                                    column_config={
+                                        "admitted_course": "Course",
+                                        "Students_Admitted": st.column_config.NumberColumn("Students Admitted"),
+                                        "Avg_Score": st.column_config.NumberColumn("Average Score", format="%.2f"),
+                                        "Min_Score": st.column_config.NumberColumn("Minimum Score", format="%.2f"),
+                                        "Max_Score": st.column_config.NumberColumn("Maximum Score", format="%.2f"),
+                                        "Capacity": st.column_config.NumberColumn("Capacity"),
+                                        "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f")
+                                    },
+                                    hide_index=True
+                                )
+                                
+                                st.subheader("Detailed Admission Results")
+                                st.dataframe(
+                                    detailed_results,
+                                    column_config={
+                                        "student_id": "Student ID",
+                                        "name": "Name",
+                                        "utme_score": st.column_config.NumberColumn("UTME Score"),
+                                        "preferred_course": "Preferred Course",
+                                        "admitted_course": "Admitted Course",
+                                        "status": "Admission Status",
+                                        "score": st.column_config.NumberColumn("Score", format="%.2f"),
+                                        "rank": st.column_config.NumberColumn("Rank"),
+                                        "admission_type": "Admission Type",
+                                        "reason": "Reason",
+                                        "original_preference": "Original Preference",
+                                        "recommendation_reason": "Recommendation Reason",
+                                        "available_alternatives": st.column_config.NumberColumn("Available Alternatives"),
+                                        "suggested_alternatives": "Suggested Alternatives"
+                                    },
+                                    hide_index=True
+                                )
+                                
+                                # Create recommended courses DataFrame
+                                recommended_courses_df = detailed_results[['student_id', 'name', 'admitted_course', 'status', 'suggested_alternatives']].copy()
+                                recommended_courses_df['recommended_course'] = recommended_courses_df.apply(
+                                    lambda row: row['admitted_course'] if row['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']
+                                    else (row['suggested_alternatives'][0] if row['suggested_alternatives'] else 'NONE'),
+                                    axis=1
+                                )
+                                
+                                # Generate Excel file
+                                excel_buffer = io.BytesIO()
+                                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                                    eligible_courses_df.to_excel(writer, sheet_name='Eligible Courses', index=False)
+                                    recommended_courses_df.to_excel(writer, sheet_name='Recommended Courses', index=False)
+                                excel_buffer.seek(0)
+                                
+                                st.subheader("Download Course Eligibility Report")
+                                st.download_button(
+                                    label="Download Course Eligibility Excel Report",
+                                    data=excel_buffer,
+                                    file_name=f"course_eligibility_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                                
+                                st.subheader("Download Admission Letters")
+                                for result in admission_results:
+                                    if result['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']:
+                                        student_data = {
+                                            'name': result.get('name', 'Student'),
+                                            'student_id': result['student_id'],
+                                            'admitted_course': result['admitted_course'],
+                                            'admission_type': result['admission_type'],
+                                            'status': result['status'],
+                                            'original_preference': result.get('original_preference', ''),
+                                            'recommendation_reason': result.get('recommendation_reason', '')
+                                        }
+                                        pdf_buffer = generate_admission_letter(student_data)
+                                        st.download_button(
+                                            label=f"Download Admission Letter for {student_data['name']} ({student_data['student_id']})",
+                                            data=pdf_buffer,
+                                            file_name=f"admission_letter_{student_data['student_id']}.pdf",
+                                            mime="application/pdf"
+                                        )
+                                
+                                csv_buffer = io.StringIO()
+                                detailed_results.to_csv(csv_buffer, index=False)
+                                csv_buffer.seek(0)
+                                st.download_button(
+                                    label="Download Full Admission Report",
+                                    data=csv_buffer.getvalue(),
+                                    file_name=f"admission_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv"
+                                )
+                except Exception as e:
+                    logger.error(f"Error processing CSV file: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    st.error(f"Error processing CSV file: {str(e)}. Please check the file format and refer to the logs for details.")
+                finally:
+                    st.session_state.uploader_key += 1  # Reset uploader key to clear file
+            st.session_state.uploader_key += 1  # Reset uploader key after processing
+        else:
+            st.info("Please upload a CSV file to process admissions.")
 
     with tab3:
         st.header("Analytics & Insights")
         st.write("Upload a CSV file to analyze student demand and capacity utilization.")
-        analytics_file = st.file_uploader("Choose a CSV file for analytics", type="csv")
+        analytics_file = st.file_uploader("Choose a CSV file for analytics", type="csv", key=f"analytics_uploader_{st.session_state.uploader_key}")
         if analytics_file:
             with st.spinner("Processing analytics..."):
                 try:
                     df = pd.read_csv(analytics_file)
-                    logger.info("Analytics CSV file uploaded: %s rows", len(df))
+                    logger.info("Analytics CSV file uploaded: %s rows, columns: %s", len(df), list(df.columns))
                     if df.empty:
                         st.error("The uploaded CSV file is empty.")
                         logger.error("Empty CSV file uploaded for analytics")
@@ -2205,5 +2224,4 @@ def main():
                     st.error(f"Error processing analytics: {str(e)}. Please check the file format and refer to the logs for details.")
 
 if __name__ == "__main__":
-    main()
     main()
