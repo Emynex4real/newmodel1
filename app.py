@@ -1007,38 +1007,113 @@ def validate_csv(df):
                 return False
     return True
 
+# ... (Previous imports and functions from Part 2 remain unchanged)
 def process_csv_applications(df, course_capacities):
-    """Process batch applications with validation"""
-    logger.info("Processing CSV applications")
-    try:
-        if not validate_csv(df):
-            return []
-        processed_students = []
-        for idx, row in df.iterrows():
-            student_data = {
-                'student_id': str(row.get('student_id', f'STU_{idx:04d}')),
-                'name': str(row.get('name', f'Student_{idx}')),
-                'utme_score': float(row.get('utme_score', 0)),
-                'preferred_course': str(row.get('preferred_course', '')),
-                'utme_subjects': str(row.get('utme_subjects', '')).split(',') if pd.notna(row.get('utme_subjects')) else [],
-                'interests': str(row.get('interests', '')).split(',') if pd.notna(row.get('interests')) else [],
-                'learning_style': str(row.get('learning_style', 'Analytical Thinker')),
-                'olevel_subjects': {},
-                'state_of_origin': str(row.get('state_of_origin', '')),
-                'gender': str(row.get('gender', '')),
-                'age': int(row.get('age', 18))
+    """Process CSV file for batch admission"""
+    logger.info("Starting CSV processing: %s rows", len(df))
+    required_columns = [
+        'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
+        'interests', 'learning_style', 'state_of_origin', 'gender',
+        'english_language_grade', 'mathematics_grade'
+    ]
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        logger.error("Missing required columns in CSV: %s", missing_columns)
+        st.error(f"CSV file is missing required columns: {', '.join(missing_columns)}")
+        return []
+
+    students = []
+    for index, row in df.iterrows():
+        try:
+            # Parse UTME subjects
+            utme_subjects = (
+                [s.strip() for s in row['utme_subjects'].split(',')]
+                if pd.notna(row['utme_subjects']) and row['utme_subjects'].strip()
+                else []
+            )
+            if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
+                logger.warning("Invalid UTME subjects for student %s at row %s: %s",
+                              row['student_id'], index + 2, utme_subjects)
+                continue  # Skip invalid rows
+
+            # Parse interests
+            interests = (
+                [i.strip() for i in row['interests'].split(',')]
+                if pd.notna(row['interests']) and row['interests'].strip()
+                else []
+            )
+
+            # Parse O'Level subjects
+            olevel_subjects = {}
+            for subject in ['english_language_grade', 'mathematics_grade', 'physics_grade',
+                          'chemistry_grade', 'biology_grade', 'economics_grade']:
+                if subject in row and pd.notna(row[subject]) and row[subject] in grade_map:
+                    subject_name = subject.replace('_grade', '').replace('_', ' ').title()
+                    olevel_subjects[subject_name] = grade_map[row[subject]]
+            if len(olevel_subjects) < 5 or 'English Language' not in olevel_subjects or 'Mathematics' not in olevel_subjects:
+                logger.warning("Insufficient or invalid O'Level subjects for student %s at row %s: %s",
+                              row['student_id'], index + 2, olevel_subjects)
+                continue  # Skip invalid rows
+
+            # Validate other fields
+            if pd.isna(row['student_id']) or not row['student_id']:
+                logger.warning("Missing student_id at row %s", index + 2)
+                continue
+            if pd.isna(row['name']) or not row['name'].strip():
+                logger.warning("Missing name for student %s at row %s", row['student_id'], index + 2)
+                continue
+            if pd.isna(row['utme_score']) or row['utme_score'] <= 0:
+                logger.warning("Invalid UTME score for student %s at row %s: %s",
+                              row['student_id'], index + 2, row['utme_score'])
+                continue
+            if pd.isna(row['preferred_course']) or row['preferred_course'] not in course_names:
+                logger.warning("Invalid preferred course for student %s at row %s: %s",
+                              row['student_id'], index + 2, row['preferred_course'])
+                continue
+            if pd.isna(row['learning_style']) or row['learning_style'] not in learning_styles:
+                logger.warning("Invalid learning style for student %s at row %s: %s",
+                              row['student_id'], index + 2, row['learning_style'])
+                continue
+            if pd.isna(row['state_of_origin']) or row['state_of_origin'] not in NIGERIAN_STATES:
+                logger.warning("Invalid state of origin for student %s at row %s: %s",
+                              row['student_id'], index + 2, row['state_of_origin'])
+                continue
+            if pd.isna(row['gender']) or row['gender'] not in ['Male', 'Female', 'Other']:
+                logger.warning("Invalid gender for student %s at row %s: %s",
+                              row['student_id'], index + 2, row['gender'])
+                continue
+
+            student = {
+                'student_id': str(row['student_id']),
+                'name': row['name'].strip(),
+                'utme_score': float(row['utme_score']),
+                'preferred_course': row['preferred_course'].strip(),
+                'utme_subjects': utme_subjects,
+                'interests': interests,
+                'learning_style': row['learning_style'].strip(),
+                'state_of_origin': row['state_of_origin'].strip(),
+                'gender': row['gender'].strip(),
+                'olevel_subjects': olevel_subjects
             }
-            for subject in common_subjects:
-                grade_col = f"{subject.lower().replace(' ', '_').replace('/', '_')}_grade"
-                if grade_col in row and pd.notna(row[grade_col]):
-                    student_data['olevel_subjects'][subject] = grade_map.get(str(row[grade_col]), 9)
-            processed_students.append(student_data)
-        admission_results = run_intelligent_admission_algorithm_v2(processed_students, course_capacities)
+            students.append(student)
+        except Exception as e:
+            logger.error("Error processing row %s for student %s: %s", index + 2, row.get('student_id', 'Unknown'), str(e))
+            logger.error(traceback.format_exc())
+            continue  # Skip rows with errors
+
+    if not students:
+        logger.error("No valid student records found in CSV after processing")
+        st.error("No valid student records found in the CSV. Please check the file format and data.")
+        return []
+
+    try:
+        admission_results = run_intelligent_admission_algorithm_v2(students, course_capacities)
+        logger.info("Batch processing completed: %s results generated", len(admission_results))
         return admission_results
     except Exception as e:
-        logger.error(f"Error in process_csv_applications: {str(e)}")
+        logger.error("Error in batch admission processing: %s", str(e))
         logger.error(traceback.format_exc())
-        st.error(f"Failed to process CSV: {str(e)}")
+        st.error(f"Batch admission processing failed: {str(e)}")
         return []
 
 # Part 2 ends here. Part 3 continues with calculate_comprehensive_score and subsequent functions.
@@ -1467,7 +1542,7 @@ def find_smart_alternatives(student_data, student_course_matrix, course_capaciti
                 'course': course,
                 'score': alternative_score,
                 'base_score': base_score,
-                'similarity_score': similarity_score,
+                'similarity_score': symmetry_score,
                 'interest_alignment': interest_alignment,
                 'available_slots': available_slots,
                 'recommendation_reason': generate_alternative_reason(preferred_course, course, similarity_score, interest_alignment)
@@ -1826,174 +1901,194 @@ def main():
     with tab2:
         st.header("Batch Admission Processing")
         st.write("Upload a CSV file with student data to process admissions in bulk.")
-        uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+        st.markdown("""
+            **Expected CSV Format**:
+            - Columns: `student_id`, `name`, `utme_score`, `preferred_course`, `utme_subjects` (comma-separated, e.g., "English Language,Mathematics,Physics,Chemistry"), 
+              `interests` (comma-separated, e.g., "Problem Solving & Logic,Technology & Innovation"), 
+              `learning_style`, `state_of_origin`, `gender`, and O'Level grades (e.g., `english_language_grade`, `mathematics_grade`, `physics_grade`).
+            - Ensure at least 5 O'Level subjects with valid grades (A1, B2, B3, C4, C5, C6).
+        """)
+        uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key="batch_uploader")
         if uploaded_file:
-            try:
-                df = pd.read_csv(uploaded_file)
-                logger.info("CSV file uploaded: %s rows", len(df))
-                course_capacities = get_dynamic_course_capacities(df)
-                admission_results = process_csv_applications(df, course_capacities)
-                
-                if admission_results:
-                    detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
-                    
-                    st.subheader("Admission Summary")
-                    for key, value in summary_stats.items():
-                        st.write(f"**{key}**: {value}")
-                    
-                    st.subheader("Course-wise Admission Breakdown")
-                    st.dataframe(
-                        course_breakdown,
-                        column_config={
-                            "admitted_course": "Course",
-                            "Students_Admitted": st.column_config.NumberColumn("Students Admitted"),
-                            "Avg_Score": st.column_config.NumberColumn("Average Score", format="%.2f"),
-                            "Min_Score": st.column_config.NumberColumn("Minimum Score", format="%.2f"),
-                            "Max_Score": st.column_config.NumberColumn("Maximum Score", format="%.2f"),
-                            "Capacity": st.column_config.NumberColumn("Capacity"),
-                            "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f")
-                        },
-                        hide_index=True
-                    )
-                    
-                    st.subheader("Detailed Admission Results")
-                    st.dataframe(
-                        detailed_results,
-                        column_config={
-                            "student_id": "Student ID",
-                            "name": "Name",
-                            "utme_score": st.column_config.NumberColumn("UTME Score"),
-                            "preferred_course": "Preferred Course",
-                            "admitted_course": "Admitted Course",
-                            "status": "Admission Status",
-                            "score": st.column_config.NumberColumn("Score", format="%.2f"),
-                            "rank": st.column_config.NumberColumn("Rank"),
-                            "admission_type": "Admission Type",
-                            "reason": "Reason",
-                            "original_preference": "Original Preference",
-                            "recommendation_reason": "Recommendation Reason",
-                            "available_alternatives": st.column_config.NumberColumn("Available Alternatives"),
-                            "suggested_alternatives": "Suggested Alternatives"
-                        },
-                        hide_index=True
-                    )
-                    
-                    st.subheader("Download Admission Letters")
-                    for result in admission_results:
-                        if result['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']:
-                            student_data = {
-                                'name': result.get('name', 'Student'),
-                                'student_id': result['student_id'],
-                                'admitted_course': result['admitted_course'],
-                                'admission_type': result['admission_type'],
-                                'status': result['status'],
-                                'original_preference': result.get('original_preference', ''),
-                                'recommendation_reason': result.get('recommendation_reason', '')
-                            }
-                            pdf_buffer = generate_admission_letter(student_data)
-                            st.download_button(
-                                label=f"Download Admission Letter for {student_data['name']} ({student_data['student_id']})",
-                                data=pdf_buffer,
-                                file_name=f"admission_letter_{student_data['student_id']}.pdf",
-                                mime="application/pdf"
+            with st.spinner("Processing CSV file..."):
+                try:
+                    df = pd.read_csv(uploaded_file)
+                    logger.info("CSV file uploaded: %s rows", len(df))
+                    if df.empty:
+                        st.error("The uploaded CSV file is empty.")
+                        logger.error("Empty CSV file uploaded")
+                    else:
+                        course_capacities = get_dynamic_course_capacities(df)
+                        admission_results = process_csv_applications(df, course_capacities)
+                        
+                        if not admission_results:
+                            st.error("No admission results generated. Check the CSV file for errors and refer to the logs for details.")
+                        else:
+                            detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
+                            
+                            st.subheader("Admission Summary")
+                            for key, value in summary_stats.items():
+                                st.write(f"**{key}**: {value}")
+                            
+                            st.subheader("Course-wise Admission Breakdown")
+                            st.dataframe(
+                                course_breakdown,
+                                column_config={
+                                    "admitted_course": "Course",
+                                    "Students_Admitted": st.column_config.NumberColumn("Students Admitted"),
+                                    "Avg_Score": st.column_config.NumberColumn("Average Score", format="%.2f"),
+                                    "Min_Score": st.column_config.NumberColumn("Minimum Score", format="%.2f"),
+                                    "Max_Score": st.column_config.NumberColumn("Maximum Score", format="%.2f"),
+                                    "Capacity": st.column_config.NumberColumn("Capacity"),
+                                    "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f")
+                                },
+                                hide_index=True
                             )
-                    
-                    csv_buffer = io.StringIO()
-                    detailed_results.to_csv(csv_buffer, index=False)
-                    csv_buffer.seek(0)
-                    st.download_button(
-                        label="Download Full Admission Report",
-                        data=csv_buffer.getvalue(),
-                        file_name=f"admission_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv"
-                    )
-            except Exception as e:
-                logger.error(f"Error processing CSV file: {str(e)}")
-                logger.error(traceback.format_exc())
-                st.error(f"Error processing CSV file: {str(e)}")
+                            
+                            st.subheader("Detailed Admission Results")
+                            st.dataframe(
+                                detailed_results,
+                                column_config={
+                                    "student_id": "Student ID",
+                                    "name": "Name",
+                                    "utme_score": st.column_config.NumberColumn("UTME Score"),
+                                    "preferred_course": "Preferred Course",
+                                    "admitted_course": "Admitted Course",
+                                    "status": "Admission Status",
+                                    "score": st.column_config.NumberColumn("Score", format="%.2f"),
+                                    "rank": st.column_config.NumberColumn("Rank"),
+                                    "admission_type": "Admission Type",
+                                    "reason": "Reason",
+                                    "original_preference": "Original Preference",
+                                    "recommendation_reason": "Recommendation Reason",
+                                    "available_alternatives": st.column_config.NumberColumn("Available Alternatives"),
+                                    "suggested_alternatives": "Suggested Alternatives"
+                                },
+                                hide_index=True
+                            )
+                            
+                            st.subheader("Download Admission Letters")
+                            for result in admission_results:
+                                if result['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']:
+                                    student_data = {
+                                        'name': result.get('name', 'Student'),
+                                        'student_id': result['student_id'],
+                                        'admitted_course': result['admitted_course'],
+                                        'admission_type': result['admission_type'],
+                                        'status': result['status'],
+                                        'original_preference': result.get('original_preference', ''),
+                                        'recommendation_reason': result.get('recommendation_reason', '')
+                                    }
+                                    pdf_buffer = generate_admission_letter(student_data)
+                                    st.download_button(
+                                        label=f"Download Admission Letter for {student_data['name']} ({student_data['student_id']})",
+                                        data=pdf_buffer,
+                                        file_name=f"admission_letter_{student_data['student_id']}.pdf",
+                                        mime="application/pdf"
+                                    )
+                            
+                            csv_buffer = io.StringIO()
+                            detailed_results.to_csv(csv_buffer, index=False)
+                            csv_buffer.seek(0)
+                            st.download_button(
+                                label="Download Full Admission Report",
+                                data=csv_buffer.getvalue(),
+                                file_name=f"admission_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                except Exception as e:
+                    logger.error(f"Error processing CSV file: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    st.error(f"Error processing CSV file: {str(e)}. Please check the file format and refer to the logs for details.")
+        else:
+            st.info("Please upload a CSV file to process admissions.")
 
     with tab3:
         st.header("Analytics & Insights")
         st.write("Upload a CSV file to analyze student demand and capacity utilization.")
         analytics_file = st.file_uploader("Choose a CSV file for analytics", type="csv")
         if analytics_file:
-            try:
-                df = pd.read_csv(analytics_file)
-                logger.info("Analytics CSV file uploaded: %s rows", len(df))
-                
-                course_capacities = get_dynamic_course_capacities(df)
-                demand_analysis = analyze_student_demand(df)
-                
-                st.subheader("Student Demand Analysis")
-                demand_df = pd.DataFrame.from_dict(demand_analysis, orient='index').reset_index()
-                demand_df.columns = ['Course', 'Primary Demand', 'Secondary Demand', 'Total Estimated Demand', 'Demand Category']
-                st.dataframe(
-                    demand_df,
-                    column_config={
-                        "Course": "Course",
-                        "Primary_Demand": st.column_config.NumberColumn("Primary Demand"),
-                        "Secondary_Demand": st.column_config.NumberColumn("Secondary Demand"),
-                        "Total_Estimated_Demand": st.column_config.NumberColumn("Total Estimated Demand"),
-                        "Demand_Category": "Demand Category"
-                    },
-                    hide_index=True
-                )
-                
-                st.subheader("Capacity Optimization Suggestions")
-                capacity_suggestions = optimize_course_capacities(
-                    {k: v['total_estimated_demand'] for k, v in demand_analysis.items()},
-                    course_capacities
-                )
-                if capacity_suggestions:
-                    suggestions_df = pd.DataFrame.from_dict(capacity_suggestions, orient='index').reset_index()
-                    suggestions_df.columns = ['Course', 'Current Capacity', 'Suggested Capacity', 'Reason', 'Priority']
-                    st.dataframe(
-                        suggestions_df,
-                        column_config={
-                            "Course": "Course",
-                            "Current_Capacity": st.column_config.NumberColumn("Current Capacity"),
-                            "Suggested_Capacity": st.column_config.NumberColumn("Suggested Capacity"),
-                            "Reason": "Reason",
-                            "Priority": "Priority"
-                        },
-                        hide_index=True
-                    )
-                
-                if 'admitted_course' in df.columns:
-                    st.subheader("Capacity Utilization")
-                    admission_results = process_csv_applications(df, course_capacities)
-                    utilization_stats = calculate_capacity_utilization(admission_results, course_capacities)
-                    utilization_df = pd.DataFrame.from_dict(utilization_stats, orient='index').reset_index()
-                    utilization_df.columns = ['Course', 'Capacity', 'Admitted', 'Available', 'Utilization Rate', 'Status']
-                    st.dataframe(
-                        utilization_df,
-                        column_config={
-                            "Course": "Course",
-                            "Capacity": st.column_config.NumberColumn("Capacity"),
-                            "Admitted": st.column_config.NumberColumn("Admitted"),
-                            "Available": st.column_config.NumberColumn("Available"),
-                            "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f"),
-                            "Status": "Status"
-                        },
-                        hide_index=True
-                    )
-                    
-                    st.subheader("Utilization Visualization")
-                    fig = px.bar(
-                        utilization_df,
-                        x='Course',
-                        y='Utilization_Rate',
-                        color='Status',
-                        title='Course Capacity Utilization',
-                        labels={'Utilization_Rate': 'Utilization Rate (%)'},
-                        height=600
-                    )
-                    fig.update_layout(xaxis_tickangle=45)
-                    st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                logger.error(f"Error in analytics processing: {str(e)}")
-                logger.error(traceback.format_exc())
-                st.error(f"Error processing analytics: {str(e)}")
+            with st.spinner("Processing analytics..."):
+                try:
+                    df = pd.read_csv(analytics_file)
+                    logger.info("Analytics CSV file uploaded: %s rows", len(df))
+                    if df.empty:
+                        st.error("The uploaded CSV file is empty.")
+                        logger.error("Empty CSV file uploaded for analytics")
+                    else:
+                        course_capacities = get_dynamic_course_capacities(df)
+                        demand_analysis = analyze_student_demand(df)
+                        
+                        st.subheader("Student Demand Analysis")
+                        demand_df = pd.DataFrame.from_dict(demand_analysis, orient='index').reset_index()
+                        demand_df.columns = ['Course', 'Primary Demand', 'Secondary Demand', 'Total Estimated Demand', 'Demand Category']
+                        st.dataframe(
+                            demand_df,
+                            column_config={
+                                "Course": "Course",
+                                "Primary_Demand": st.column_config.NumberColumn("Primary Demand"),
+                                "Secondary_Demand": st.column_config.NumberColumn("Secondary Demand"),
+                                "Total_Estimated_Demand": st.column_config.NumberColumn("Total Estimated Demand"),
+                                "Demand_Category": "Demand Category"
+                            },
+                            hide_index=True
+                        )
+                        
+                        st.subheader("Capacity Optimization Suggestions")
+                        capacity_suggestions = optimize_course_capacities(
+                            {k: v['total_estimated_demand'] for k, v in demand_analysis.items()},
+                            course_capacities
+                        )
+                        if capacity_suggestions:
+                            suggestions_df = pd.DataFrame.from_dict(capacity_suggestions, orient='index').reset_index()
+                            suggestions_df.columns = ['Course', 'Current Capacity', 'Suggested Capacity', 'Reason', 'Priority']
+                            st.dataframe(
+                                suggestions_df,
+                                column_config={
+                                    "Course": "Course",
+                                    "Current_Capacity": st.column_config.NumberColumn("Current Capacity"),
+                                    "Suggested_Capacity": st.column_config.NumberColumn("Suggested Capacity"),
+                                    "Reason": "Reason",
+                                    "Priority": "Priority"
+                                },
+                                hide_index=True
+                            )
+                        
+                        if 'admitted_course' in df.columns:
+                            st.subheader("Capacity Utilization")
+                            admission_results = process_csv_applications(df, course_capacities)
+                            utilization_stats = calculate_capacity_utilization(admission_results, course_capacities)
+                            utilization_df = pd.DataFrame.from_dict(utilization_stats, orient='index').reset_index()
+                            utilization_df.columns = ['Course', 'Capacity', 'Admitted', 'Available', 'Utilization Rate', 'Status']
+                            st.dataframe(
+                                utilization_df,
+                                column_config={
+                                    "Course": "Course",
+                                    "Capacity": st.column_config.NumberColumn("Capacity"),
+                                    "Admitted": st.column_config.NumberColumn("Admitted"),
+                                    "Available": st.column_config.NumberColumn("Available"),
+                                    "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f"),
+                                    "Status": "Status"
+                                },
+                                hide_index=True
+                            )
+                            
+                            st.subheader("Utilization Visualization")
+                            fig = px.bar(
+                                utilization_df,
+                                x='Course',
+                                y='Utilization_Rate',
+                                color='Status',
+                                title='Course Capacity Utilization',
+                                labels={'Utilization_Rate': 'Utilization Rate (%)'},
+                                height=600
+                            )
+                            fig.update_layout(xaxis_tickangle=45)
+                            st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    logger.error(f"Error in analytics processing: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    st.error(f"Error processing analytics: {str(e)}. Please check the file format and refer to the logs for details.")
 
 if __name__ == "__main__":
     main()
