@@ -1374,7 +1374,115 @@ def create_download_button(data, filename, label):
     st.markdown(href, unsafe_allow_html=True)
 # [All code from Part 1, including imports, constants, and functions up to create_download_button, is assumed to be above this point]
 
-# [All code from Part 1, including imports, constants, and functions up to create_download_button, is assumed to be above this point]
+def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selected_interests, learning_style, state, gender):
+    """Predict placement using ML model with robust input handling"""
+    global FEATURE_NAMES, MODEL, SCALER
+    try:
+        if MODEL is None or SCALER is None or FEATURE_NAMES is None:
+            logger.info("Model not initialized, training now")
+            MODEL, SCALER = train_placement_model()
+        
+        # Input validation
+        utme_subjects = utme_subjects if utme_subjects is not None else []
+        selected_interests = selected_interests if selected_interests is not None else []
+        olevel_subjects = olevel_subjects if olevel_subjects is not None else {}
+        learning_style = learning_style if learning_style is not None else "Analytical Thinker"
+        state = state if state is not None else ""
+        gender = gender if gender is not None else ""
+        
+        parsed_req = get_course_requirements()
+        results = []
+        for course in course_names:
+            eligible = is_eligible(olevel_subjects, utme_subjects, course, parsed_req) and utme_score >= cutoff_marks[course]
+            interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_.strip(), [])) * 0.3
+            if learning_style in learning_styles and course in learning_styles[learning_style]:
+                interest_weight += 0.2
+            diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
+            
+            features = {'utme': utme_score}
+            for sub in common_subjects:
+                features[sub] = olevel_subjects.get(sub, 9)
+            for utme_sub in common_subjects:
+                features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
+            for int_ in interest_categories.keys():
+                features[int_] = 1 if int_ in selected_interests else 0
+            for ls in learning_styles.keys():
+                features[f'ls_{ls}'] = 1 if learning_style == ls else 0
+            features['diversity_score'] = diversity_score
+            for c in course_names:
+                features[f'course_{c}'] = 1 if c == course else 0
+            
+            features_df = pd.DataFrame([features])
+            for feature in FEATURE_NAMES:
+                if feature not in features_df.columns:
+                    features_df[feature] = 0
+            features_df = features_df[FEATURE_NAMES]
+            
+            X_scaled = SCALER.transform(features_df)
+            score = MODEL.predict(X_scaled)[0]
+            if eligible:
+                grade_sum, count = compute_grade_sum(olevel_subjects, course, parsed_req)
+                score = compute_enhanced_score(utme_score, grade_sum, count, interest_weight, diversity_score)
+            
+            results.append({
+                "course": course,
+                "eligible": eligible,
+                "score": score,
+                "interest_weight": interest_weight,
+                "diversity_score": diversity_score
+            })
+        
+        results_df = pd.DataFrame(results)
+        eligible_courses = results_df[results_df["eligible"] & (results_df["score"] > 0)]
+        if eligible_courses.empty:
+            reasons = []
+            if utme_score < 160:
+                reasons.append(f"Your UTME score ({utme_score}) is below the minimum university requirement of 160.")
+            if len([s for s, g in olevel_subjects.items() if g <= 6]) < 5:
+                reasons.append("You need at least 5 O'Level credits (C6 or better).")
+            if "English Language" not in olevel_subjects or olevel_subjects.get("English Language", 9) > 6:
+                reasons.append("A credit in English Language (C6 or better) is required for all courses.")
+            if "Mathematics" not in olevel_subjects or olevel_subjects.get("Mathematics", 9) > 6:
+                reasons.append("A credit in Mathematics (C6 or better) is required for most courses.")
+            if "English Language" not in utme_subjects:
+                reasons.append("English Language is a mandatory UTME subject for all courses.")
+            
+            reason_text = "You are not eligible for any course due to the following reasons:\n" + "\n".join(f"- {r}" for r in reasons)
+            if not reasons:
+                reason_text = "You are not eligible for any course. Please check your UTME score, UTME subjects, and O'Level grades against course requirements."
+            
+            suggestions = [
+                "📈 Retake UTME to improve your score if it is below the required cutoff.",
+                "📚 Ensure at least 5 O'Level credits, including English Language and Mathematics.",
+                "🔍 Verify that your UTME subject combination aligns with the requirements of your preferred course.",
+                "🎯 Consider courses with lower UTME cutoffs (e.g., 180) or adjust your UTME subject choices.",
+                "📞 Contact the admissions office for guidance."
+            ]
+            
+            return {
+                "predicted_program": "UNASSIGNED",
+                "score": 0,
+                "reason": reason_text,
+                "suggestions": suggestions,
+                "all_eligible": pd.DataFrame()
+            }
+        best_course = eligible_courses.loc[eligible_courses["score"].idxmax()]
+        return {
+            "predicted_program": best_course["course"],
+            "score": best_course["score"],
+            "reason": "Best match based on ML prediction",
+            "all_eligible": eligible_courses.sort_values("score", ascending=False),
+            "interest_alignment": best_course["interest_weight"] > 0
+        }
+    except Exception as e:
+        logger.error(f"Error in predict_placement_enhanced: {str(e)}")
+        st.error(f"Prediction failed: {str(e)}")
+        return {
+            "predicted_program": "UNASSIGNED",
+            "score": 0,
+            "reason": f"Prediction failed due to an unexpected error: {str(e)}",
+            "all_eligible": pd.DataFrame()
+        }
 
 def main():
     """Main Streamlit app function"""
