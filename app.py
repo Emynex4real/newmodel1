@@ -1008,8 +1008,9 @@ def validate_csv(df):
     return True
 
 # ... (Previous imports and functions from Part 2 remain unchanged)
+# ... (Previous imports and functions from Part 2 remain unchanged)
 def process_csv_applications(df, course_capacities):
-    """Process CSV file for batch admission"""
+    """Process CSV file for batch admission and collect eligible courses"""
     logger.info("Starting CSV processing: %s rows", len(df))
     required_columns = [
         'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
@@ -1020,9 +1021,10 @@ def process_csv_applications(df, course_capacities):
     if missing_columns:
         logger.error("Missing required columns in CSV: %s", missing_columns)
         st.error(f"CSV file is missing required columns: {', '.join(missing_columns)}")
-        return []
+        return [], pd.DataFrame()
 
     students = []
+    eligible_courses_list = []
     for index, row in df.iterrows():
         try:
             # Parse UTME subjects
@@ -1034,7 +1036,7 @@ def process_csv_applications(df, course_capacities):
             if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
                 logger.warning("Invalid UTME subjects for student %s at row %s: %s",
                               row['student_id'], index + 2, utme_subjects)
-                continue  # Skip invalid rows
+                continue
 
             # Parse interests
             interests = (
@@ -1053,7 +1055,7 @@ def process_csv_applications(df, course_capacities):
             if len(olevel_subjects) < 5 or 'English Language' not in olevel_subjects or 'Mathematics' not in olevel_subjects:
                 logger.warning("Insufficient or invalid O'Level subjects for student %s at row %s: %s",
                               row['student_id'], index + 2, olevel_subjects)
-                continue  # Skip invalid rows
+                continue
 
             # Validate other fields
             if pd.isna(row['student_id']) or not row['student_id']:
@@ -1096,25 +1098,55 @@ def process_csv_applications(df, course_capacities):
                 'olevel_subjects': olevel_subjects
             }
             students.append(student)
+
+            # Collect eligible courses from predict_placement_enhanced
+            prediction = predict_placement_enhanced(
+                student['utme_score'],
+                student['olevel_subjects'],
+                student['utme_subjects'],
+                student['interests'],
+                student['learning_style'],
+                student['state_of_origin'],
+                student['gender']
+            )
+            if 'all_eligible' in prediction and not prediction['all_eligible'].empty:
+                eligible_df = prediction['all_eligible'][['course', 'score', 'interest_weight', 'diversity_score']].copy()
+                eligible_df['student_id'] = student['student_id']
+                eligible_df['name'] = student['name']
+                eligible_courses_list.append(eligible_df)
+            else:
+                # Add empty record if no eligible courses
+                eligible_courses_list.append(pd.DataFrame([{
+                    'student_id': student['student_id'],
+                    'name': student['name'],
+                    'course': 'NONE',
+                    'score': 0.0,
+                    'interest_weight': 0.0,
+                    'diversity_score': 0.0
+                }]))
+
         except Exception as e:
             logger.error("Error processing row %s for student %s: %s", index + 2, row.get('student_id', 'Unknown'), str(e))
             logger.error(traceback.format_exc())
-            continue  # Skip rows with errors
+            continue
 
     if not students:
         logger.error("No valid student records found in CSV after processing")
         st.error("No valid student records found in the CSV. Please check the file format and data.")
-        return []
+        return [], pd.DataFrame()
 
     try:
         admission_results = run_intelligent_admission_algorithm_v2(students, course_capacities)
-        logger.info("Batch processing completed: %s results generated", len(admission_results))
-        return admission_results
+        eligible_courses_df = pd.concat(eligible_courses_list, ignore_index=True) if eligible_courses_list else pd.DataFrame()
+        logger.info("Batch processing completed: %s results generated, %s eligible courses records",
+                    len(admission_results), len(eligible_courses_df))
+        return admission_results, eligible_courses_df
     except Exception as e:
         logger.error("Error in batch admission processing: %s", str(e))
         logger.error(traceback.format_exc())
         st.error(f"Batch admission processing failed: {str(e)}")
-        return []
+        return [], pd.DataFrame()
+# ... (Other functions from Part 2 remain unchanged)
 
 # Part 2 ends here. Part 3 continues with calculate_comprehensive_score and subsequent functions.
 
