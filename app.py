@@ -288,7 +288,7 @@ def train_placement_model():
 
 # Part 1 ends here. Part 2 continues with get_course_requirements.
 
-    def get_course_requirements():
+def get_course_requirements():
     """Return detailed course requirements for all courses"""
     requirements = {
         "Agric Extension & Communication Technology": {
@@ -1043,7 +1043,7 @@ def process_csv_applications(df, course_capacities):
 
 # Part 2 ends here. Part 3 continues with calculate_comprehensive_score and subsequent functions.
 
-    def calculate_comprehensive_score(student, course, base_score):
+def calculate_comprehensive_score(student, course, base_score):
     """Calculate comprehensive score with diversity and UTME alignment"""
     final_score = base_score * 0.6
     interest_bonus = sum(0.05 for interest in student['interests'] if interest.strip() in interest_categories and course in interest_categories[interest.strip()])
@@ -1975,4 +1975,4 @@ def main():
                 st.error(f"Error processing analytics: {str(e)}")
 
 if __name__ == "__main__":
-    main()   
+    main()
