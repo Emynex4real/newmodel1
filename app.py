@@ -14,9 +14,9 @@ import io
 import base64
 from datetime import datetime
 import logging
-from reportlab.lib.pagesizes import letter
+import traceback  # Added for detailed error logging
 from reportlab.pdfgen import canvas
-from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -210,21 +210,24 @@ def train_placement_model():
     logger.info("Starting placement model training")
     try:
         parsed_req = get_course_requirements()
+        logger.info("Parsed requirements loaded in training")
         data = []
         
         for _ in range(500):
+            logger.info("Generating synthetic student data for iteration %s", _)
             utme = np.random.randint(100, 400)
             num_subjects = np.random.randint(5, 10)
             selected_olevel_subs = np.random.choice(common_subjects, num_subjects, replace=False)
             olevels = {sub: np.random.choice(list(grade_map.values())) for sub in selected_olevel_subs}
-            utme_subjects = ["Use of English"] + list(np.random.choice(
-                [s for s in common_subjects if s != "Use of English"], 3, replace=False))
+            utme_subjects = ["English Language"] + list(np.random.choice(
+                [s for s in common_subjects if s != "English Language"], 3, replace=False))
             interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, 5), replace=False).tolist()
             learning = np.random.choice(list(learning_styles.keys()))
             state = np.random.choice(NIGERIAN_STATES)
             gender = np.random.choice(["Male", "Female", "Other"])
             
             for course in course_names:
+                logger.info("Processing synthetic course: %s", course)
                 eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= cutoff_marks[course]
                 score = 0
                 interest_weight = 0
@@ -279,6 +282,7 @@ def train_placement_model():
     
     except Exception as e:
         logger.error(f"Error during model training: {str(e)}")
+        logger.error(traceback.format_exc())
         st.error(f"Failed to train model: {str(e)}")
         raise
 
@@ -286,7 +290,7 @@ def get_course_requirements():
     """Return detailed course requirements for all courses"""
     requirements = {
         "Agric Extension & Communication Technology": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Biology/Agricultural Science"],
+            "utme_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science"],
             "utme_optional": {1: ["Physics", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Chemistry", "Mathematics", "Biology/Agricultural Science"],
             "olevel_optional": {1: ["Physics", "Geography", "Economics"]},
@@ -294,7 +298,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Agricultural Engineering": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Chemistry", "Physics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Chemistry", "Physics"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Introduction to Agricultural Science", "Materials and Workshop Process and Machining", 
@@ -303,7 +307,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Agriculture Resource Economics": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Biology/Agricultural Science"],
+            "utme_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science"],
             "utme_optional": {1: ["Physics", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Chemistry", "Mathematics", "Biology"],
             "olevel_optional": {1: ["Physics", "Economics", "Further Mathematics", "Statistics"]},
@@ -311,7 +315,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Animal Production & Health Services": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Biology/Agricultural Science"],
+            "utme_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science"],
             "utme_optional": {1: ["Physics", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Chemistry", "Mathematics", "Biology/Agricultural Science"],
             "olevel_optional": {1: ["Physics"]},
@@ -319,7 +323,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Applied Geology": {
-            "utme_mandatory": ["Use of English"],
+            "utme_mandatory": ["English Language"],
             "utme_optional": {3: ["Chemistry", "Physics", "Mathematics", "Biology", "Geography"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {1: ["Chemistry", "Biology"]},
@@ -327,7 +331,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Applied Geophysics": {
-            "utme_mandatory": ["Use of English"],
+            "utme_mandatory": ["English Language"],
             "utme_optional": {3: ["Physics", "Chemistry", "Biology", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {1: ["Chemistry", "Biology"]},
@@ -335,7 +339,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Architecture": {
-            "utme_mandatory": ["Use of English", "Physics", "Mathematics"],
+            "utme_mandatory": ["English Language", "Physics", "Mathematics"],
             "utme_optional": {1: ["Chemistry", "Geography", "Art", "Biology", "Economics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Fine Art", "Geography", "Wood Work", "Biology", "Economics", "Technical Drawing", 
@@ -348,7 +352,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Biochemistry": {
-            "utme_mandatory": ["Use of English", "Biology", "Chemistry"],
+            "utme_mandatory": ["English Language", "Biology", "Chemistry"],
             "utme_optional": {1: ["Physics", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Chemistry", "Mathematics", "Physics", "Biology"],
             "olevel_optional": {},
@@ -356,7 +360,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Biology": {
-            "utme_mandatory": ["Use of English", "Biology", "Chemistry"],
+            "utme_mandatory": ["English Language", "Biology", "Chemistry"],
             "utme_optional": {1: ["Physics", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Biology", "Chemistry"],
             "olevel_optional": {1: ["Mathematics", "Physics"]},
@@ -364,7 +368,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Biomedical Technology": {
-            "utme_mandatory": ["Use of English", "Physics", "Chemistry", "Biology"],
+            "utme_mandatory": ["English Language", "Physics", "Chemistry", "Biology"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry", "Biology"],
             "olevel_optional": {},
@@ -372,7 +376,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Biotechnology": {
-            "utme_mandatory": ["Use of English", "Biology", "Chemistry"],
+            "utme_mandatory": ["English Language", "Biology", "Chemistry"],
             "utme_optional": {1: ["Physics", "Mathematics", "Agricultural Science"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Biology", "Chemistry", "Physics"],
             "olevel_optional": {},
@@ -380,7 +384,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Building": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics", "Chemistry"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Geography", "Economics", "Arts", "Technical Drawing"]},
@@ -388,7 +392,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Civil Engineering": {
-            "utme_mandatory": ["Use of English", "Physics", "Chemistry", "Mathematics"],
+            "utme_mandatory": ["English Language", "Physics", "Chemistry", "Mathematics"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Physics", "Chemistry", "Mathematics"],
             "olevel_optional": {1: ["Biology", "Further Mathematics", "Technical Drawing"]},
@@ -396,7 +400,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Computer Engineering": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics", "Chemistry"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Further Mathematics", "Chemistry", "Physics"],
             "olevel_optional": {},
@@ -404,7 +408,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Computer Science": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics"],
             "utme_optional": {1: ["Biology", "Chemistry", "Agricultural Science", "Economics", "Geography"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {2: ["Biology", "Chemistry", "Agricultural Science"]},
@@ -412,7 +416,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Crop Soil & Pest Management": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Biology/Agricultural Science"],
+            "utme_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science"],
             "utme_optional": {1: ["Mathematics", "Physics"]},
             "olevel_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science", "Mathematics"],
             "olevel_optional": {1: ["Physics", "Economics"]},
@@ -420,7 +424,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Cyber Security": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics"],
             "utme_optional": {1: ["Biology", "Chemistry", "Agricultural Science", "Economics", "Geography"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {2: ["Chemistry", "Economics", "Further Mathematics"]},
@@ -428,7 +432,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Ecotourism & Wildlife Management": {
-            "utme_mandatory": ["Use of English", "Biology/Agricultural Science"],
+            "utme_mandatory": ["English Language", "Biology/Agricultural Science"],
             "utme_optional": {2: ["Chemistry", "Geography", "Economics", "Mathematics", "Physics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Biology/Agricultural Science"],
             "olevel_optional": {2: ["Chemistry", "Geography", "Economics"]},
@@ -436,7 +440,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Electrical / Electronics Engineering": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics", "Chemistry"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Further Mathematics", "Technical Drawing"]},
@@ -444,7 +448,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Estate Management": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Economics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Economics"],
             "utme_optional": {1: ["Chemistry", "Geography", "Biology"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Chemistry", "Economics"],
             "olevel_optional": {},
@@ -452,7 +456,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Fisheries & Aquaculture": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Biology/Agricultural Science"],
+            "utme_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science"],
             "utme_optional": {1: ["Mathematics", "Physics"]},
             "olevel_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science", "Mathematics"],
             "olevel_optional": {1: ["Physics", "Geography", "Economics"]},
@@ -460,7 +464,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Food Science & Technology": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Mathematics/Physics"],
+            "utme_mandatory": ["English Language", "Chemistry", "Mathematics/Physics"],
             "utme_optional": {1: ["Biology", "Agricultural Science"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Chemistry"],
             "olevel_optional": {2: ["Biology/Agricultural Science", "Physics", "Basic Catering and Food Services", 
@@ -470,7 +474,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Forestry & Wood Technology": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Biology/Agricultural Science"],
+            "utme_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science"],
             "utme_optional": {1: ["Mathematics", "Physics"]},
             "olevel_mandatory": ["English Language", "Chemistry", "Biology/Agricultural Science", "Mathematics"],
             "olevel_optional": {1: ["Physics"]},
@@ -478,7 +482,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Human Anatomy": {
-            "utme_mandatory": ["Use of English", "Biology", "Chemistry", "Physics"],
+            "utme_mandatory": ["English Language", "Biology", "Chemistry", "Physics"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Biology", "Chemistry", "Physics"],
             "olevel_optional": {},
@@ -486,7 +490,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Industrial & Production Engineering": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics", "Chemistry"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Further Mathematics", "Technical Drawing"]},
@@ -494,7 +498,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Industrial Chemistry": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Mathematics"],
+            "utme_mandatory": ["English Language", "Chemistry", "Mathematics"],
             "utme_optional": {1: ["Physics", "Biology", "Agricultural Science"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Chemistry", "Physics"],
             "olevel_optional": {1: ["Biology", "Agricultural Science"]},
@@ -502,7 +506,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Industrial Design": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Mathematics"],
+            "utme_mandatory": ["English Language", "Chemistry", "Mathematics"],
             "utme_optional": {1: ["Fine Arts", "Physics"]},
             "olevel_mandatory": ["English Language", "Fine Art", "Mathematics", "Chemistry"],
             "olevel_optional": {1: ["Spinning", "Weaving", "Surface Design and Printing"]},
@@ -510,7 +514,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Industrial Mathematics": {
-            "utme_mandatory": ["Use of English", "Mathematics"],
+            "utme_mandatory": ["English Language", "Mathematics"],
             "utme_optional": {2: ["Physics", "Chemistry", "Economics", "Biology", "Agricultural Science"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {2: ["Chemistry", "Biology"]},
@@ -518,7 +522,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Information & Communication Technology": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Economics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Economics"],
             "utme_optional": {1: ["Accounting", "Commerce", "Government"]},
             "olevel_mandatory": ["English Language", "Economics", "Mathematics"],
             "olevel_optional": {2: ["Physics", "Chemistry"]},
@@ -526,7 +530,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Information Systems": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics"],
             "utme_optional": {1: ["Biology", "Chemistry", "Agricultural Science", "Economics", "Geography"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {2: ["Chemistry", "Economics", "Geography"]},
@@ -534,7 +538,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Information Technology": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics"],
             "utme_optional": {1: ["Biology", "Chemistry", "Agricultural Science", "Economics", "Geography"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {2: ["Chemistry", "Economics", "Geography"]},
@@ -542,7 +546,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Marine Science & Technology": {
-            "utme_mandatory": ["Use of English", "Biology"],
+            "utme_mandatory": ["English Language", "Biology"],
             "utme_optional": {2: ["Physics", "Chemistry", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Biology"],
             "olevel_optional": {2: ["Chemistry", "Physics"]},
@@ -550,7 +554,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Mathematics": {
-            "utme_mandatory": ["Use of English", "Mathematics"],
+            "utme_mandatory": ["English Language", "Mathematics"],
             "utme_optional": {2: ["Physics", "Chemistry", "Economics", "Geography"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {1: ["Chemistry"]},
@@ -558,7 +562,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Mechanical Engineering": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics", "Chemistry"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Physics", "Chemistry", "Mathematics"],
             "olevel_optional": {1: ["Further Mathematics", "Technical Drawing"]},
@@ -566,7 +570,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Medical Laboratory Science": {
-            "utme_mandatory": ["Use of English", "Biology", "Chemistry", "Physics"],
+            "utme_mandatory": ["English Language", "Biology", "Chemistry", "Physics"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Chemistry", "Biology", "Physics"],
             "olevel_optional": {},
@@ -574,7 +578,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Metallurgical & Materials Engineering": {
-            "utme_mandatory": ["Use of English", "Physics", "Chemistry", "Mathematics"],
+            "utme_mandatory": ["English Language", "Physics", "Chemistry", "Mathematics"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Physics", "Chemistry", "Mathematics"],
             "olevel_optional": {1: ["Further Mathematics", "Technical Drawing"]},
@@ -582,7 +586,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Meteorology": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics"],
             "utme_optional": {1: ["Chemistry", "Geography"]},
             "olevel_mandatory": ["English Language", "Physics", "Mathematics"],
             "olevel_optional": {1: ["Chemistry", "Geography"]},
@@ -590,7 +594,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Microbiology": {
-            "utme_mandatory": ["Use of English", "Biology", "Chemistry"],
+            "utme_mandatory": ["English Language", "Biology", "Chemistry"],
             "utme_optional": {1: ["Physics", "Mathematics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Chemistry", "Biology", "Physics"],
             "olevel_optional": {},
@@ -598,7 +602,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Mining Engineering": {
-            "utme_mandatory": ["Use of English", "Chemistry", "Mathematics", "Physics"],
+            "utme_mandatory": ["English Language", "Chemistry", "Mathematics", "Physics"],
             "utme_optional": {},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Further Mathematics", "Technical Drawing"]},
@@ -606,7 +610,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Physics": {
-            "utme_mandatory": ["Use of English", "Physics", "Mathematics"],
+            "utme_mandatory": ["English Language", "Physics", "Mathematics"],
             "utme_optional": {1: ["Chemistry", "Biology"]},
             "olevel_mandatory": ["English Language", "Physics", "Chemistry", "Mathematics"],
             "olevel_optional": {1: ["Further Mathematics", "Biology", "Agricultural Science"]},
@@ -614,15 +618,22 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Physiology": {
-            "utme_mandatory": ["Use of English", "Physics", "Chemistry", "Biology"],
+            "utme_mandatory": ["English Language", "Physics", "Chemistry", "Biology"],
             "utme_optional": {},
-            "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry", "Biology"],
+            "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry정이
+
+System: ### Part 2: Remaining Functions and Main UI
+
+This part continues from `get_course_requirements` (completing it with the remaining courses), includes the updated `predict_placement_enhanced` with enhanced validation and logging, and covers the rest of the functions and the main UI. The changes ensure robust handling of inputs and fix the `NoneType` error by guaranteeing iterables.
+
+<xaiArtifact artifact_id="7495409e-ac7c-4e36-a23d-f0071afd437f" artifact_version_id="03399841-c08b-43dc-b965-1b552ea6a522" title="app_part2.py" contentType="text/python">
+, "Biology"],
             "olevel_optional": {},
             "olevel_thresholds": {},
             "required_credit_count": 5,
         },
         "Quantity Surveying": {
-            "utme_mandatory": ["Use of English", "Physics", "Mathematics"],
+            "utme_mandatory": ["English Language", "Physics", "Mathematics"],
             "utme_optional": {1: ["Chemistry", "Geography", "Art", "Biology", "Economics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Fine Art", "Geography", "Wood Work", "Biology", "Economics", "Technical Drawing", 
@@ -635,7 +646,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Remote Sensing & Geoscience Information System": {
-            "utme_mandatory": ["Use of English", "Physics", "Mathematics"],
+            "utme_mandatory": ["English Language", "Physics", "Mathematics"],
             "utme_optional": {1: ["Chemistry", "Geography", "Art", "Biology", "Economics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Fine Art", "Geography", "Wood Work", "Biology", "Economics", "Technical Drawing", 
@@ -648,7 +659,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Software Engineering": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Physics"],
+            "utme_mandatory": ["English Language", "Mathematics", "Physics"],
             "utme_optional": {1: ["Biology", "Chemistry", "Agricultural Science", "Economics", "Geography"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics"],
             "olevel_optional": {2: ["Chemistry", "Further Mathematics", "Economics"]},
@@ -656,7 +667,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Statistics": {
-            "utme_mandatory": ["Use of English", "Mathematics"],
+            "utme_mandatory": ["English Language", "Mathematics"],
             "utme_optional": {2: ["Physics", "Chemistry", "Economics"]},
             "olevel_mandatory": ["English Language", "Mathematics"],
             "olevel_optional": {3: ["Physics", "Statistics", "Chemistry", "Further Mathematics", "Economics", "Geography"]},
@@ -664,7 +675,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Surveying & Geoinformatics": {
-            "utme_mandatory": ["Use of English", "Physics", "Mathematics"],
+            "utme_mandatory": ["English Language", "Physics", "Mathematics"],
             "utme_optional": {1: ["Chemistry", "Geography", "Art", "Biology", "Economics"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry"],
             "olevel_optional": {1: ["Fine Art", "Geography", "Wood Work", "Biology", "Economics", "Technical Drawing", 
@@ -677,7 +688,7 @@ def get_course_requirements():
             "required_credit_count": 5,
         },
         "Urban & Regional Planning": {
-            "utme_mandatory": ["Use of English", "Mathematics", "Geography"],
+            "utme_mandatory": ["English Language", "Mathematics", "Geography"],
             "utme_optional": {1: ["Economics", "Physics", "Chemistry"]},
             "olevel_mandatory": ["English Language", "Mathematics", "Geography"],
             "olevel_optional": {2: ["Physics", "Chemistry", "Economics", "Government", "Biology", "Art", 
@@ -687,8 +698,8 @@ def get_course_requirements():
         },
     }
     default_req = {
-        "utme_mandatory": ["Use of English", "Mathematics"],
-        "utme_optional": {2: [s for s in common_subjects if s != "Use of English"]},
+        "utme_mandatory": ["English Language", "Mathematics"],
+        "utme_optional": {2: [s for s in common_subjects if s != "English Language"]},
         "olevel_mandatory": ["English Language", "Mathematics"],
         "olevel_optional": {3: common_subjects[2:]},
         "olevel_thresholds": {},
@@ -789,7 +800,7 @@ def is_eligible(olevel_subjects, utme_subjects, course, parsed_req):
     """Check if applicant meets both O'Level and UTME requirements"""
     if course not in parsed_req:
         required_olevel_subjects = ["English Language", "Mathematics"]
-        required_utme_subjects = ["Use of English", "Mathematics"]
+        required_utme_subjects = ["English Language", "Mathematics"]
         return (all(sub in olevel_subjects and olevel_subjects[sub] <= 6 for sub in required_olevel_subjects) and
                 all(sub in utme_subjects for sub in required_utme_subjects))
     
@@ -856,18 +867,34 @@ def compute_enhanced_score(utme_score, grade_sum, count, course_weight, diversit
     return min(base_score + interest_bonus + diversity_bonus, 1 + base_interest_bonus + 0.1)
 
 def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selected_interests, learning_style, state, gender):
-    """Predict placement using ML model"""
+    """Predict placement using ML model with robust input handling and debugging"""
     global FEATURE_NAMES, MODEL, SCALER
     try:
         if MODEL is None or SCALER is None or FEATURE_NAMES is None:
             logger.info("Model not initialized, training now")
             MODEL, SCALER = train_placement_model()
+        logger.info("Training complete or model already loaded")
+
+        # Robust input validation with debugging
+        utme_subjects = utme_subjects if utme_subjects is not None else []
+        selected_interests = selected_interests if selected_interests is not None else []
+        olevel_subjects = olevel_subjects if olevel_subjects is not None else {}
+        learning_style = learning_style if learning_style is not None else "Analytical Thinker"
+        state = state if state is not None else ""
+        gender = gender if gender is not None else ""
+        
+        logger.info("Inputs after validation: utme_score=%s, utme_subjects=%s, selected_interests=%s, olevel_subjects=%s, learning_style=%s, state=%s, gender=%s",
+                    utme_score, utme_subjects, selected_interests, olevel_subjects, learning_style, state, gender)
         
         parsed_req = get_course_requirements()
+        logger.info("Parsed requirements loaded")
+
         results = []
         for course in course_names:
+            logger.info("Processing course: %s", course)
             eligible = is_eligible(olevel_subjects, utme_subjects, course, parsed_req) and utme_score >= cutoff_marks[course]
-            interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_, [])) * 0.3
+            logger.info("Eligibility for %s: %s", course, eligible)
+            interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_.strip(), [])) * 0.3
             if learning_style in learning_styles and course in learning_styles[learning_style]:
                 interest_weight += 0.2
             diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
@@ -917,8 +944,8 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selec
                 reasons.append("A credit in English Language (C6 or better) is required for all courses.")
             if "Mathematics" not in olevel_subjects or olevel_subjects.get("Mathematics", 9) > 6:
                 reasons.append("A credit in Mathematics (C6 or better) is required for most courses.")
-            if "Use of English" not in utme_subjects:
-                reasons.append("Use of English is a mandatory UTME subject for all courses.")
+            if "English Language" not in utme_subjects:
+                reasons.append("English Language is a mandatory UTME subject for all courses.")
             
             reason_text = "You are not eligible for any course due to the following reasons:\n" + "\n".join(f"- {r}" for r in reasons)
             if not reasons:
@@ -949,6 +976,7 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selec
         }
     except Exception as e:
         logger.error(f"Error in predict_placement_enhanced: {str(e)}")
+        logger.error(traceback.format_exc())
         st.error(f"Prediction failed: {str(e)}")
         return {
             "predicted_program": "UNASSIGNED",
@@ -971,8 +999,8 @@ def validate_csv(df):
         st.error("UTME scores must be numeric")
         return False
     if df['utme_subjects'].str.count(',').max() != 3:
-        logger.error("UTME subjects must include exactly 4 subjects (including Use of English)")
-        st.error("UTME subjects must include exactly 4 subjects (including Use of English), comma-separated")
+        logger.error("UTME subjects must include exactly 4 subjects (including English Language)")
+        st.error("UTME subjects must include exactly 4 subjects (including English Language), comma-separated")
         return False
     for subject in common_subjects:
         grade_col = f"{subject.lower().replace(' ', '_').replace('/', '_')}_grade"
@@ -1014,6 +1042,7 @@ def process_csv_applications(df, course_capacities):
         return admission_results
     except Exception as e:
         logger.error(f"Error in process_csv_applications: {str(e)}")
+        logger.error(traceback.format_exc())
         st.error(f"Failed to process CSV: {str(e)}")
         return []
 
@@ -1286,6 +1315,7 @@ def run_intelligent_admission_algorithm_v2(students, course_capacities):
         return results
     except Exception as e:
         logger.error(f"Error in run_intelligent_admission_algorithm_v2: {str(e)}")
+        logger.error(traceback.format_exc())
         st.error(f"Admission algorithm failed: {str(e)}")
         return []
 
@@ -1303,7 +1333,7 @@ def check_minimum_university_requirements(student_data):
     for req in required_olevel:
         if req not in olevels or olevels[req] > 6:
             return False
-    if "Use of English" not in utme_subjects:
+    if "English Language" not in utme_subjects:
         return False
     return True
 
@@ -1354,332 +1384,276 @@ def generate_admission_letter(student_data):
     c.drawString(100, 510, "Sincerely,")
     c.drawString(100, 490, "Admissions Office")
     c.showPage()
-    c.save()
+    c.save()  # Close the PDF document
     buffer.seek(0)
     return buffer
 
-def create_download_button(data, filename, label):
-    """Create a download button for data"""
-    if isinstance(data, pd.DataFrame):
-        csv = data.to_csv(index=False)
-        b64 = base64.b64encode(csv.encode()).decode()
-        href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">{label}</a>'
-    elif isinstance(data, io.BytesIO):
-        b64 = base64.b64encode(data.getvalue()).decode()
-        href = f'<a href="data:application/pdf;base64,{b64}" download="{filename}">{label}</a>'
-    else:
-        json_data = json.dumps(data, indent=2)
-        b64 = base64.b64encode(json_data.encode()).decode()
-        href = f'<a href="data:application/json;base64,{b64}" download="{filename}">{label}</a>'
-    st.markdown(href, unsafe_allow_html=True)
-# [All code from Part 1, including imports, constants, and functions up to create_download_button, is assumed to be above this point]
-
-import logging
-logger = logging.getLogger(__name__)
-
-def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selected_interests, learning_style, state, gender):
-    """Predict placement using ML model with robust input handling and debugging"""
-    global FEATURE_NAMES, MODEL, SCALER
-    try:
-        if MODEL is None or SCALER is None or FEATURE_NAMES is None:
-            logger.info("Model not initialized, training now")
-            MODEL, SCALER = train_placement_model()
-        
-        # Robust input validation with debugging
-        utme_subjects = utme_subjects if utme_subjects is not None else []
-        selected_interests = selected_interests if selected_interests is not None else []
-        olevel_subjects = olevel_subjects if olevel_subjects is not None else {}
-        learning_style = learning_style if learning_style is not None else "Analytical Thinker"
-        state = state if state is not None else ""
-        gender = gender if gender is not None else ""
-        
-        # Log input values for debugging
-        logger.info(f"Inputs: utme_score={utme_score}, utme_subjects={utme_subjects}, "
-                    f"selected_interests={selected_interests}, olevel_subjects={olevel_subjects}, "
-                    f"learning_style={learning_style}, state={state}, gender={gender}")
-        
-        if not utme_subjects:
-            logger.warning("utme_subjects is empty")
-        if not selected_interests:
-            logger.warning("selected_interests is empty")
-        if len(olevel_subjects) < 5:
-            logger.warning(f"olevel_subjects has {len(olevel_subjects)} entries, expected at least 5")
-        
-        parsed_req = get_course_requirements()
-        results = []
-        for course in course_names:
-            eligible = is_eligible(olevel_subjects, utme_subjects, course, parsed_req) and utme_score >= cutoff_marks[course]
-            interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_.strip(), [])) * 0.3
-            if learning_style in learning_styles and course in learning_styles[learning_style]:
-                interest_weight += 0.2
-            diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
-            
-            features = {'utme': utme_score}
-            for sub in common_subjects:
-                features[sub] = olevel_subjects.get(sub, 9)
-            for utme_sub in common_subjects:
-                features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
-            for int_ in interest_categories.keys():
-                features[int_] = 1 if int_ in selected_interests else 0
-            for ls in learning_styles.keys():
-                features[f'ls_{ls}'] = 1 if learning_style == ls else 0
-            features['diversity_score'] = diversity_score
-            for c in course_names:
-                features[f'course_{c}'] = 1 if c == course else 0
-            
-            features_df = pd.DataFrame([features])
-            for feature in FEATURE_NAMES:
-                if feature not in features_df.columns:
-                    features_df[feature] = 0
-            features_df = features_df[FEATURE_NAMES]
-            
-            X_scaled = SCALER.transform(features_df)
-            score = MODEL.predict(X_scaled)[0]
-            if eligible:
-                grade_sum, count = compute_grade_sum(olevel_subjects, course, parsed_req)
-                score = compute_enhanced_score(utme_score, grade_sum, count, interest_weight, diversity_score)
-            
-            results.append({
-                "course": course,
-                "eligible": eligible,
-                "score": score,
-                "interest_weight": interest_weight,
-                "diversity_score": diversity_score
-            })
-        
-        results_df = pd.DataFrame(results)
-        eligible_courses = results_df[results_df["eligible"] & (results_df["score"] > 0)]
-        if eligible_courses.empty:
-            reasons = []
-            if utme_score < 160:
-                reasons.append(f"Your UTME score ({utme_score}) is below the minimum university requirement of 160.")
-            if len([s for s, g in olevel_subjects.items() if g <= 6]) < 5:
-                reasons.append("You need at least 5 O'Level credits (C6 or better).")
-            if "English Language" not in olevel_subjects or olevel_subjects.get("English Language", 9) > 6:
-                reasons.append("A credit in English Language (C6 or better) is required for all courses.")
-            if "Mathematics" not in olevel_subjects or olevel_subjects.get("Mathematics", 9) > 6:
-                reasons.append("A credit in Mathematics (C6 or better) is required for most courses.")
-            if "English Language" not in utme_subjects:
-                reasons.append("English Language is a mandatory UTME subject for all courses.")
-            
-            reason_text = "You are not eligible for any course due to the following reasons:\n" + "\n".join(f"- {r}" for r in reasons)
-            if not reasons:
-                reason_text = "You are not eligible for any course. Please check your UTME score, UTME subjects, and O'Level grades against course requirements."
-            
-            suggestions = [
-                "📈 Retake UTME to improve your score if it is below the required cutoff.",
-                "📚 Ensure at least 5 O'Level credits, including English Language and Mathematics.",
-                "🔍 Verify that your UTME subject combination aligns with the requirements of your preferred course.",
-                "🎯 Consider courses with lower UTME cutoffs (e.g., 180) or adjust your UTME subject choices.",
-                "📞 Contact the admissions office for guidance."
-            ]
-            
-            return {
-                "predicted_program": "UNASSIGNED",
-                "score": 0,
-                "reason": reason_text,
-                "suggestions": suggestions,
-                "all_eligible": pd.DataFrame()
-            }
-        best_course = eligible_courses.loc[eligible_courses["score"].idxmax()]
-        return {
-            "predicted_program": best_course["course"],
-            "score": best_course["score"],
-            "reason": "Best match based on ML prediction",
-            "all_eligible": eligible_courses.sort_values("score", ascending=False),
-            "interest_alignment": best_course["interest_weight"] > 0
-        }
-    except Exception as e:
-        logger.error(f"Error in predict_placement_enhanced: {str(e)}")
-        st.error(f"Prediction failed: {str(e)}")
-        return {
-            "predicted_program": "UNASSIGNED",
-            "score": 0,
-            "reason": f"Prediction failed due to an unexpected error: {str(e)}",
-            "all_eligible": pd.DataFrame()
-        }
-
 def main():
-    """Main Streamlit app function"""
-    st.title("FUTA Admission Management System 🎓")
-    
-    tabs = st.tabs(["Individual Admission", "Batch Processing"])
-    
-    with tabs[0]:
-        individual_admission_ui()
-    
-    with tabs[1]:
-        batch_processing_ui()
+    """Main Streamlit app"""
+    st.title("🎓 FUTA Intelligent Admission Management System")
+    st.markdown("Welcome to the Federal University of Technology, Akure Admission Management System. This system uses advanced algorithms to optimize student placements.")
 
-def individual_admission_ui():
-    """UI for individual admission prediction"""
-    st.header("Individual Admission Prediction")
-    
-    with st.form("individual_form"):
-        st.subheader("Personal Information")
-        col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("Full Name", "John Doe", key="name")
-            state = st.selectbox("State of Origin", NIGERIAN_STATES, key="state")
-        with col2:
-            gender = st.selectbox("Gender", ["Male", "Female", "Other"], key="gender")
-            learning_style = st.selectbox("Learning Style", ["Visual Learner", "Hands-on Learner", "Analytical Thinker", "People-oriented"], key="learning_style")
-        
-        st.subheader("Academic Information")
-        utme_score = st.number_input("UTME Score", min_value=0, max_value=400, value=200, key="utme_score")
-        utme_subjects = st.multiselect("UTME Subjects (Select 4, including English Language)", 
-                                      common_subjects, default=["English Language"], key="utme_subjects")
-        preferred_course = st.selectbox("Preferred Course", course_names, key="preferred_course")
-        
-        st.subheader("O'Level Subjects and Grades")
-        olevel_subjects = {}
-        selected_subjects = set()  # Track selected subjects to prevent duplicates
-        for i in range(5):
+    tab1, tab2, tab3 = st.tabs(["Individual Admission", "Batch Processing", "Analytics & Insights"])
+
+    with tab1:
+        st.header("Individual Admission Prediction")
+        with st.form("individual_prediction_form"):
+            st.subheader("Candidate Information")
             col1, col2 = st.columns(2)
             with col1:
-                # Filter out already selected subjects
-                available_subjects = [s for s in common_subjects if s not in selected_subjects]
-                subject = st.selectbox(f"O'Level Subject {i+1}", 
-                                      available_subjects, key=f"subject_{i}")
-                selected_subjects.add(subject)
+                name = st.text_input("Full Name", placeholder="Enter your full name")
+                state = st.selectbox("State of Origin", NIGERIAN_STATES, index=28)  # Default to Ondo
+                gender = st.selectbox("Gender", ["Male", "Female", "Other"])
             with col2:
-                grade = st.selectbox(f"Grade for {subject}", list(grade_map.keys()), key=f"grade_{i}")
-                olevel_subjects[subject] = grade_map[grade]
-        
-        interests = st.multiselect("Interests", 
-                                  ["Problem Solving & Logic", "Building & Construction", "Healthcare & Medicine", 
-                                   "Environment & Nature", "Technology & Innovation", "Business & Management", 
-                                   "Research & Analysis", "Creative & Design"], default=None, key="interests")
-        
-        submitted = st.form_submit_button("Predict Admission")
-        
-        if submitted:
-            # Log form inputs for debugging
-            logger.info(f"Form submitted: utme_subjects={utme_subjects}, interests={interests}, olevel_subjects={olevel_subjects}")
-            
-            if not utme_subjects or len(utme_subjects) != 4:
-                st.error("Please select exactly 4 UTME subjects, including English Language.")
-                return
-            if "English Language" not in utme_subjects:
-                st.error("English Language is a mandatory UTME subject.")
-                return
-            if len(olevel_subjects) < 5:
-                st.error("Please select at least 5 unique O'Level subjects.")
-                return
-            
-            prediction = predict_placement_enhanced(
-                utme_score=utme_score,
-                olevel_subjects=olevel_subjects,
-                utme_subjects=utme_subjects,
-                selected_interests=interests,
-                learning_style=learning_style,
-                state=state,
-                gender=gender
-            )
-            
-            st.subheader("Admission Prediction Result")
-            if prediction["predicted_program"] != "UNASSIGNED":
-                st.success(f"Congratulations! You are predicted to be admitted to **{prediction['predicted_program']}** with a score of {prediction['score']:.3f}.")
-                student_data = {
-                    'student_id': 'STU_TEST',
-                    'name': name,
-                    'admitted_course': prediction['predicted_program'],
-                    'status': 'ADMITTED',
-                    'admission_type': 'PREFERRED'
-                }
-                admission_letter = generate_admission_letter(student_data)
-                create_download_button(admission_letter, f"admission_letter_{name}.pdf", "Download Admission Letter")
-                
-                if not prediction["all_eligible"].empty:
-                    st.write("Other Eligible Courses:")
-                    st.dataframe(prediction["all_eligible"][["course", "score"]].style.format({"score": "{:.3f}"}))
-            else:
-                st.error("You are not eligible for admission.")
-                st.write(f"**Reason**: {prediction['reason']}")
-                st.write("**Suggestions for Improvement**:")
-                for suggestion in prediction.get("suggestions", []):
-                    st.write(f"- {suggestion}")
+                utme_score = st.number_input("UTME Score", min_value=0, max_value=400, step=1)
+                learning_style = st.selectbox("Learning Style", list(learning_styles.keys()), index=2)  # Default to Analytical Thinker
 
-def batch_processing_ui():
-    """UI for batch processing of applications"""
-    st.header("Batch Admission Processing")
-    
-    st.write("Upload a CSV file with the following columns:")
-    st.markdown("""
-    - **student_id**: Unique identifier for the student
-    - **name**: Student's full name
-    - **utme_score**: UTME score (numeric, 0-400)
-    - **preferred_course**: Preferred course of study
-    - **utme_subjects**: Comma-separated list of 4 UTME subjects (including English Language)
-    - **interests**: Comma-separated list of interests (optional)
-    - **learning_style**: Learning style (optional, default: Analytical Thinker)
-    - **state_of_origin**: State of origin (optional)
-    - **gender**: Gender (optional)
-    - **<subject>_grade**: Grades for O'Level subjects (e.g., english_language_grade, mathematics_grade), using grades A1, B2, B3, C4, C5, C6, D7, E8, F9
-    """)
-    
-    uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
-    
-    if uploaded_file:
-        try:
-            df = pd.read_csv(uploaded_file)
-            course_capacities = get_dynamic_course_capacities(df)
-            admission_results = process_csv_applications(df, course_capacities)
-            
-            if admission_results:
-                detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
+            st.subheader("UTME Subjects")
+            utme_subjects = st.multiselect(
+                "Select 4 UTME Subjects (English Language is mandatory)",
+                common_subjects,
+                default=["English Language"],
+                max_selections=4
+            )
+            utme_subjects = utme_subjects or []  # Ensure non-None
+
+            st.subheader("O'Level Results")
+            st.write("Select at least 5 subjects and their grades")
+            olevel_subjects = {}
+            for i in range(5):
+                col1, col2 = st.columns(2)
+                with col1:
+                    subject = st.selectbox(f"O'Level Subject {i+1}", [""] + common_subjects, key=f"olevel_sub_{i}")
+                with col2:
+                    grade = st.selectbox(f"Grade {i+1}", list(grade_map.keys()), key=f"olevel_grade_{i}")
+                if subject and subject != "":
+                    olevel_subjects[subject] = grade_map[grade]
+
+            st.subheader("Interests")
+            interests = st.multiselect("Select Your Interests", list(interest_categories.keys()))
+            interests = interests or []  # Ensure non-None
+
+            submit_button = st.form_submit_button("Predict Admission")
+            if submit_button:
+                logger.info("Individual admission form submitted: name=%s, utme_score=%s, utme_subjects=%s, interests=%s",
+                            name, utme_score, utme_subjects, interests)
+                if len(utme_subjects) != 4:
+                    st.error("Please select exactly 4 UTME subjects, including English Language.")
+                elif len(olevel_subjects) < 5:
+                    st.error("Please select at least 5 O'Level subjects with grades.")
+                elif "English Language" not in utme_subjects:
+                    st.error("English Language is a mandatory UTME subject.")
+                else:
+                    try:
+                        prediction = predict_placement_enhanced(
+                            utme_score,
+                            olevel_subjects,
+                            utme_subjects,
+                            interests,
+                            learning_style,
+                            state,
+                            gender
+                        )
+                        if prediction['predicted_program'] == "UNASSIGNED":
+                            st.error(prediction['reason'])
+                            if 'suggestions' in prediction:
+                                st.subheader("Suggestions for Improvement")
+                                for suggestion in prediction['suggestions']:
+                                    st.markdown(f"- {suggestion}")
+                        else:
+                            st.success(f"Congratulations! You are predicted to be admitted to **{prediction['predicted_program']}**")
+                            st.write(f"**Prediction Score**: {prediction['score']:.2f}")
+                            st.write(f"**Reason**: {prediction['reason']}")
+                            if prediction['interest_alignment']:
+                                st.write("✅ This course aligns well with your interests!")
+                            if not prediction['all_eligible'].empty:
+                                st.subheader("Other Eligible Courses")
+                                st.dataframe(
+                                    prediction['all_eligible'][['course', 'score', 'interest_weight', 'diversity_score']],
+                                    column_config={
+                                        "course": "Course",
+                                        "score": st.column_config.NumberColumn("Prediction Score", format="%.2f"),
+                                        "interest_weight": st.column_config.NumberColumn("Interest Alignment", format="%.2f"),
+                                        "diversity_score": st.column_config.NumberColumn("Diversity Score", format="%.2f")
+                                    },
+                                    hide_index=True
+                                )
+                    except Exception as e:
+                        logger.error(f"Error during individual prediction: {str(e)}")
+                        logger.error(traceback.format_exc())
+                        st.error(f"An error occurred during prediction: {str(e)}")
+
+    with tab2:
+        st.header("Batch Admission Processing")
+        st.write("Upload a CSV file with student data to process admissions in bulk.")
+        uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+        if uploaded_file:
+            try:
+                df = pd.read_csv(uploaded_file)
+                logger.info("CSV file uploaded: %s rows", len(df))
+                course_capacities = get_dynamic_course_capacities(df)
+                admission_results = process_csv_applications(df, course_capacities)
                 
-                st.subheader("Admission Results")
-                st.dataframe(detailed_results)
-                create_download_button(detailed_results, "admission_results.csv", "Download Detailed Results")
+                if admission_results:
+                    detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
+                    
+                    st.subheader("Admission Summary")
+                    for key, value in summary_stats.items():
+                        st.write(f"**{key}**: {value}")
+                    
+                    st.subheader("Course-wise Admission Breakdown")
+                    st.dataframe(
+                        course_breakdown,
+                        column_config={
+                            "admitted_course": "Course",
+                            "Students_Admitted": st.column_config.NumberColumn("Students Admitted"),
+                            "Avg_Score": st.column_config.NumberColumn("Average Score", format="%.2f"),
+                            "Min_Score": st.column_config.NumberColumn("Minimum Score", format="%.2f"),
+                            "Max_Score": st.column_config.NumberColumn("Maximum Score", format="%.2f"),
+                            "Capacity": st.column_config.NumberColumn("Capacity"),
+                            "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f")
+                        },
+                        hide_index=True
+                    )
+                    
+                    st.subheader("Detailed Admission Results")
+                    st.dataframe(
+                        detailed_results,
+                        column_config={
+                            "student_id": "Student ID",
+                            "name": "Name",
+                            "utme_score": st.column_config.NumberColumn("UTME Score"),
+                            "preferred_course": "Preferred Course",
+                            "admitted_course": "Admitted Course",
+                            "status": "Admission Status",
+                            "score": st.column_config.NumberColumn("Score", format="%.2f"),
+                            "rank": st.column_config.NumberColumn("Rank"),
+                            "admission_type": "Admission Type",
+                            "reason": "Reason",
+                            "original_preference": "Original Preference",
+                            "recommendation_reason": "Recommendation Reason",
+                            "available_alternatives": st.column_config.NumberColumn("Available Alternatives"),
+                            "suggested_alternatives": "Suggested Alternatives"
+                        },
+                        hide_index=True
+                    )
+                    
+                    st.subheader("Download Admission Letters")
+                    for result in admission_results:
+                        if result['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']:
+                            student_data = {
+                                'name': result.get('name', 'Student'),
+                                'student_id': result['student_id'],
+                                'admitted_course': result['admitted_course'],
+                                'admission_type': result['admission_type'],
+                                'status': result['status'],
+                                'original_preference': result.get('original_preference', ''),
+                                'recommendation_reason': result.get('recommendation_reason', '')
+                            }
+                            pdf_buffer = generate_admission_letter(student_data)
+                            st.download_button(
+                                label=f"Download Admission Letter for {student_data['name']} ({student_data['student_id']})",
+                                data=pdf_buffer,
+                                file_name=f"admission_letter_{student_data['student_id']}.pdf",
+                                mime="application/pdf"
+                            )
+                    
+                    csv_buffer = io.StringIO()
+                    detailed_results.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+                    st.download_button(
+                        label="Download Full Admission Report",
+                        data=csv_buffer.getvalue(),
+                        file_name=f"admission_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+            except Exception as e:
+                logger.error(f"Error processing CSV file: {str(e)}")
+                logger.error(traceback.format_exc())
+                st.error(f"Error processing CSV file: {str(e)}")
+
+    with tab3:
+        st.header("Analytics & Insights")
+        st.write("Upload a CSV file to analyze student demand and capacity utilization.")
+        analytics_file = st.file_uploader("Choose a CSV file for analytics", type="csv")
+        if analytics_file:
+            try:
+                df = pd.read_csv(analytics_file)
+                logger.info("Analytics CSV file uploaded: %s rows", len(df))
                 
-                st.subheader("Summary Statistics")
-                st.json(summary_stats)
-                create_download_button(summary_stats, "summary_stats.json", "Download Summary Statistics")
+                course_capacities = get_dynamic_course_capacities(df)
+                demand_analysis = analyze_student_demand(df)
                 
-                st.subheader("Course Breakdown")
-                st.dataframe(course_breakdown)
-                
-                st.subheader("Download Individual Admission Letters")
-                for result in admission_results:
-                    if result['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']:
-                        student_data = {
-                            'student_id': result['student_id'],
-                            'name': df[df['student_id'] == result['student_id']]['name'].iloc[0],
-                            'admitted_course': result['admitted_course'],
-                            'status': result['status'],
-                            'admission_type': result['admission_type'],
-                            'original_preference': result.get('original_preference', ''),
-                            'recommendation_reason': result.get('recommendation_reason', '')
-                        }
-                        admission_letter = generate_admission_letter(student_data)
-                        create_download_button(admission_letter, f"admission_letter_{result['student_id']}.pdf", f"Download Letter for {student_data['name']}")
-                
-                # Visualizations
-                st.subheader("Admission Statistics Visualization")
-                fig = px.bar(
-                    course_breakdown,
-                    x='admitted_course',
-                    y='Utilization_Rate',
-                    title="Course Capacity Utilization",
-                    labels={'admitted_course': 'Course', 'Utilization_Rate': 'Utilization Rate (%)'},
-                    text='Utilization_Rate'
+                st.subheader("Student Demand Analysis")
+                demand_df = pd.DataFrame.from_dict(demand_analysis, orient='index').reset_index()
+                demand_df.columns = ['Course', 'Primary Demand', 'Secondary Demand', 'Total Estimated Demand', 'Demand Category']
+                st.dataframe(
+                    demand_df,
+                    column_config={
+                        "Course": "Course",
+                        "Primary_Demand": st.column_config.NumberColumn("Primary Demand"),
+                        "Secondary_Demand": st.column_config.NumberColumn("Secondary Demand"),
+                        "Total_Estimated_Demand": st.column_config.NumberColumn("Total Estimated Demand"),
+                        "Demand_Category": "Demand Category"
+                    },
+                    hide_index=True
                 )
-                fig.update_traces(texttemplate='%{text:.1f}%', textposition='auto')
-                fig.update_layout(xaxis_tickangle=45)
-                st.plotly_chart(fig)
                 
-                status_counts = pd.DataFrame(admission_results).groupby('status').size().reset_index(name='count')
-                fig2 = px.pie(
-                    status_counts,
-                    names='status',
-                    values='count',
-                    title="Admission Status Distribution"
+                st.subheader("Capacity Optimization Suggestions")
+                capacity_suggestions = optimize_course_capacities(
+                    {k: v['total_estimated_demand'] for k, v in demand_analysis.items()},
+                    course_capacities
                 )
-                st.plotly_chart(fig2)
+                if capacity_suggestions:
+                    suggestions_df = pd.DataFrame.from_dict(capacity_suggestions, orient='index').reset_index()
+                    suggestions_df.columns = ['Course', 'Current Capacity', 'Suggested Capacity', 'Reason', 'Priority']
+                    st.dataframe(
+                        suggestions_df,
+                        column_config={
+                            "Course": "Course",
+                            "Current_Capacity": st.column_config.NumberColumn("Current Capacity"),
+                            "Suggested_Capacity": st.column_config.NumberColumn("Suggested Capacity"),
+                            "Reason": "Reason",
+                            "Priority": "Priority"
+                        },
+                        hide_index=True
+                    )
                 
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
+                if 'admitted_course' in df.columns:
+                    st.subheader("Capacity Utilization")
+                    admission_results = process_csv_applications(df, course_capacities)
+                    utilization_stats = calculate_capacity_utilization(admission_results, course_capacities)
+                    utilization_df = pd.DataFrame.from_dict(utilization_stats, orient='index').reset_index()
+                    utilization_df.columns = ['Course', 'Capacity', 'Admitted', 'Available', 'Utilization Rate', 'Status']
+                    st.dataframe(
+                        utilization_df,
+                        column_config={
+                            "Course": "Course",
+                            "Capacity": st.column_config.NumberColumn("Capacity"),
+                            "Admitted": st.column_config.NumberColumn("Admitted"),
+                            "Available": st.column_config.NumberColumn("Available"),
+                            "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f"),
+                            "Status": "Status"
+                        },
+                        hide_index=True
+                    )
+                    
+                    st.subheader("Utilization Visualization")
+                    fig = px.bar(
+                        utilization_df,
+                        x='Course',
+                        y='Utilization_Rate',
+                        color='Status',
+                        title='Course Capacity Utilization',
+                        labels={'Utilization_Rate': 'Utilization Rate (%)'},
+                        height=600
+                    )
+                    fig.update_layout(xaxis_tickangle=45)
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                logger.error(f"Error in analytics processing: {str(e)}")
+                logger.error(traceback.format_exc())
+                st.error(f"Error processing analytics: {str(e)}")
 
 if __name__ == "__main__":
     main()
