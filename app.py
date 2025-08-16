@@ -14,7 +14,7 @@ import io
 import base64
 from datetime import datetime
 import logging
-import traceback  # Added for detailed error logging
+import traceback
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 
@@ -286,7 +286,9 @@ def train_placement_model():
         st.error(f"Failed to train model: {str(e)}")
         raise
 
-def get_course_requirements():
+# Part 1 ends here. Part 2 continues with get_course_requirements.
+
+    def get_course_requirements():
     """Return detailed course requirements for all courses"""
     requirements = {
         "Agric Extension & Communication Technology": {
@@ -620,14 +622,7 @@ def get_course_requirements():
         "Physiology": {
             "utme_mandatory": ["English Language", "Physics", "Chemistry", "Biology"],
             "utme_optional": {},
-            "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry정이
-
-System: ### Part 2: Remaining Functions and Main UI
-
-This part continues from `get_course_requirements` (completing it with the remaining courses), includes the updated `predict_placement_enhanced` with enhanced validation and logging, and covers the rest of the functions and the main UI. The changes ensure robust handling of inputs and fix the `NoneType` error by guaranteeing iterables.
-
-<xaiArtifact artifact_id="7495409e-ac7c-4e36-a23d-f0071afd437f" artifact_version_id="03399841-c08b-43dc-b965-1b552ea6a522" title="app_part2.py" contentType="text/python">
-, "Biology"],
+            "olevel_mandatory": ["English Language", "Mathematics", "Physics", "Chemistry", "Biology"],
             "olevel_optional": {},
             "olevel_thresholds": {},
             "required_credit_count": 5,
@@ -1046,7 +1041,9 @@ def process_csv_applications(df, course_capacities):
         st.error(f"Failed to process CSV: {str(e)}")
         return []
 
-def calculate_comprehensive_score(student, course, base_score):
+# Part 2 ends here. Part 3 continues with calculate_comprehensive_score and subsequent functions.
+
+    def calculate_comprehensive_score(student, course, base_score):
     """Calculate comprehensive score with diversity and UTME alignment"""
     final_score = base_score * 0.6
     interest_bonus = sum(0.05 for interest in student['interests'] if interest.strip() in interest_categories and course in interest_categories[interest.strip()])
@@ -1384,9 +1381,331 @@ def generate_admission_letter(student_data):
     c.drawString(100, 510, "Sincerely,")
     c.drawString(100, 490, "Admissions Office")
     c.showPage()
-    c.save()  # Close the PDF document
+    c.save()
     buffer.seek(0)
     return buffer
+
+def calculate_comprehensive_score(student, course, base_score):
+    """Calculate comprehensive score with diversity and UTME alignment"""
+    final_score = base_score * 0.6
+    interest_bonus = sum(0.05 for interest in student['interests'] if interest.strip() in interest_categories and course in interest_categories[interest.strip()])
+    final_score += min(interest_bonus, 0.2)
+    learning_bonus = 0.1 if student['learning_style'] in learning_styles and any(course_type in course for course_type in ['Engineering', 'Science', 'Technology']) and student['learning_style'] in ['Analytical Thinker', 'Visual Learner'] else 0
+    final_score += learning_bonus
+    olevel_performance = calculate_olevel_performance_indicator(student['olevel_subjects'])
+    final_score += olevel_performance * 0.1
+    diversity_score = 0.05 if student['state_of_origin'] in ["Yobe", "Zamfara", "Borno"] else 0.03 if student['gender'] == "Female" else 0
+    final_score += diversity_score
+    parsed_req = get_course_requirements()
+    utme_subjects = student['utme_subjects']
+    utme_bonus = 0.1 if all(s in utme_subjects for s in parsed_req[course]["utme_mandatory"]) else 0
+    for num, group in parsed_req[course]["utme_optional"].items():
+        if sum(1 for sub in group if sub in utme_subjects) >= num:
+            utme_bonus += 0.05
+    final_score += utme_bonus
+    return min(final_score, 1.0)
+
+def calculate_olevel_performance_indicator(olevel_subjects):
+    """Calculate O'Level performance indicator"""
+    if not olevel_subjects:
+        return 0
+    grades = list(olevel_subjects.values())
+    excellent_count = sum(1 for grade in grades if grade <= 2)
+    good_count = sum(1 for grade in grades if grade <= 4)
+    total = len(grades)
+    return min((excellent_count * 1.0 + (good_count - excellent_count) * 0.7) / total, 1.0)
+
+def calculate_course_similarity(course1, course2, course_groups):
+    """Calculate course similarity"""
+    similarity = 0.0
+    for group, courses in course_groups.items():
+        if course1 in courses and course2 in courses:
+            similarity += 0.4
+            break
+    course1_groups = [g for g, cs in course_groups.items() if course1 in cs]
+    course2_groups = [g for g, cs in course_groups.items() if course2 in cs]
+    related_groups = {
+        'engineering': ['technology', 'science'],
+        'technology': ['engineering', 'science'],
+        'science': ['engineering', 'technology', 'health'],
+        'health': ['science'],
+        'management': ['design'],
+        'design': ['management']
+    }
+    for g1 in course1_groups:
+        for g2 in course2_groups:
+            if g1 != g2 and g2 in related_groups.get(g1, []):
+                similarity += 0.2
+    course1_words = set(course1.lower().split())
+    course2_words = set(course2.lower().split())
+    common = course1_words.intersection(course2_words)
+    if common:
+        similarity += len(common) * 0.1
+    return min(similarity, 1.0)
+
+def find_smart_alternatives(student_data, student_course_matrix, course_capacities, course_admission_counts, max_alternatives=5):
+    """Find intelligent alternative courses"""
+    student_id = student_data['student_id']
+    preferred_course = student_data['preferred_course']
+    interests = student_data.get('interests', [])
+    student_row = next((row for row in student_course_matrix if row['student_id'] == student_id), None)
+    if not student_row:
+        return []
+    alternatives = []
+    for course in course_names:
+        if course != preferred_course and course in course_capacities and course_admission_counts.get(course, 0) < course_capacities[course] and student_row[course]['eligible']:
+            base_score = student_row[course]['score']
+            similarity_score = calculate_course_similarity(preferred_course, course, course_groups)
+            interest_alignment = sum(0.2 for interest in interests if interest.strip() in interest_categories and course in interest_categories[interest.strip()])
+            interest_alignment = min(interest_alignment, 0.6)
+            available_slots = course_capacities[course] - course_admission_counts.get(course, 0)
+            capacity_factor = min(available_slots / course_capacities[course], 1.0) * 0.1
+            demand = course_admission_counts.get(course, 0)
+            demand_factor = (1 - (demand / course_capacities[course])) * 0.1 if course_capacities[course] > 0 else 0
+            alternative_score = base_score * 0.4 + similarity_score * 0.3 + interest_alignment * 0.2 + capacity_factor * 0.05 + demand_factor * 0.05
+            alternatives.append({
+                'course': course,
+                'score': alternative_score,
+                'base_score': base_score,
+                'similarity_score': similarity_score,
+                'interest_alignment': interest_alignment,
+                'available_slots': available_slots,
+                'recommendation_reason': generate_alternative_reason(preferred_course, course, similarity_score, interest_alignment)
+            })
+    alternatives.sort(key=lambda x: x['score'], reverse=True)
+    return alternatives[:max_alternatives]
+
+def generate_alternative_reason(preferred_course, alternative_course, similarity_score, interest_alignment):
+    """Generate reason for alternative recommendation"""
+    reasons = []
+    if similarity_score > 0.3:
+        reasons.append(f"closely related to {preferred_course}")
+    if interest_alignment > 0.3:
+        reasons.append("matches your interests")
+    if any(keyword in alternative_course.lower() for keyword in ['computer', 'software', 'cyber', 'information']):
+        if any(keyword in preferred_course.lower() for keyword in ['computer', 'software', 'cyber', 'information']):
+            reasons.append("similar technology focus")
+    if any(keyword in alternative_course.lower() for keyword in ['engineering']):
+        if any(keyword in preferred_course.lower() for keyword in ['engineering']):
+            reasons.append("same engineering discipline")
+    if not reasons:
+        reasons.append("good academic fit based on your qualifications")
+    return ", ".join(reasons)
+
+def run_intelligent_admission_algorithm_v2(students, course_capacities):
+    """Advanced admission algorithm with diversity and tie-breaking"""
+    logger.info("Running intelligent admission algorithm")
+    try:
+        results = []
+        course_admission_counts = {course: 0 for course in course_capacities}
+        student_course_matrix = []
+        
+        for student in students:
+            student_row = {'student_id': student['student_id'], 'student_data': student}
+            prediction = predict_placement_enhanced(
+                student['utme_score'],
+                student['olevel_subjects'],
+                student['utme_subjects'],
+                student['interests'],
+                student['learning_style'],
+                student['state_of_origin'],
+                student['gender']
+            )
+            for course in course_names:
+                base_score = 0
+                eligible = False
+                if 'all_eligible' in prediction and not prediction['all_eligible'].empty:
+                    course_match = prediction['all_eligible'][prediction['all_eligible']['course'] == course]
+                    if not course_match.empty:
+                        base_score = course_match.iloc[0]['score']
+                        eligible = True
+                if eligible:
+                    comprehensive_score = calculate_comprehensive_score(student, course, base_score)
+                    if course == student['preferred_course']:
+                        comprehensive_score *= 1.15
+                    student_row[course] = {
+                        'score': comprehensive_score,
+                        'eligible': True,
+                        'base_score': base_score
+                    }
+                else:
+                    student_row[course] = {
+                        'score': 0,
+                        'eligible': False,
+                        'base_score': 0
+                    }
+            student_course_matrix.append(student_row)
+        
+        admitted_students = set()
+        
+        # Phase 1: Preferred course admission
+        for course in course_names:
+            if course not in course_capacities:
+                continue
+            capacity = course_capacities[course]
+            candidates = []
+            for student_row in student_course_matrix:
+                student_id = student_row['student_id']
+                student_data = student_row['student_data']
+                if student_id not in admitted_students and student_row[course]['eligible'] and student_data['preferred_course'] == course:
+                    olevel_avg = sum(student_data['olevel_subjects'].values()) / len(student_data['olevel_subjects']) if student_data['olevel_subjects'] else 9
+                    candidates.append({
+                        'student_id': student_id,
+                        'student_data': student_data,
+                        'score': student_row[course]['score'],
+                        'olevel_avg': olevel_avg,
+                        'course': course
+                    })
+            candidates.sort(key=lambda x: (x['score'], -x['olevel_avg']), reverse=True)
+            for i, candidate in enumerate(candidates[:capacity - course_admission_counts[course]]):
+                results.append({
+                    'student_id': candidate['student_id'],
+                    'name': candidate['student_data']['name'],
+                    'admitted_course': course,
+                    'status': 'ADMITTED',
+                    'score': candidate['score'],
+                    'rank': course_admission_counts[course] + i + 1,
+                    'admission_type': 'PREFERRED'
+                })
+                admitted_students.add(candidate['student_id'])
+                course_admission_counts[course] += 1
+        
+        # Phase 2: Merit-based admission
+        for course in course_names:
+            if course not in course_capacities:
+                continue
+            remaining = course_capacities[course] - course_admission_counts[course]
+            if remaining > 0:
+                candidates = []
+                for student_row in student_course_matrix:
+                    student_id = student_row['student_id']
+                    student_data = student_row['student_data']
+                    if student_id not in admitted_students and student_row[course]['eligible']:
+                        olevel_avg = sum(student_data['olevel_subjects'].values()) / len(student_data['olevel_subjects']) if student_data['olevel_subjects'] else 9
+                        candidates.append({
+                            'student_id': student_id,
+                            'student_data': student_data,
+                            'score': student_row[course]['score'],
+                            'olevel_avg': olevel_avg,
+                            'course': course
+                        })
+                candidates.sort(key=lambda x: (x['score'], -x['olevel_avg']), reverse=True)
+                for i, candidate in enumerate(candidates[:remaining]):
+                    results.append({
+                        'student_id': candidate['student_id'],
+                        'name': candidate['student_data']['name'],
+                        'admitted_course': course,
+                        'status': 'ADMITTED',
+                        'score': candidate['score'],
+                        'rank': course_admission_counts[course] + i + 1,
+                        'admission_type': 'MERIT'
+                    })
+                    admitted_students.add(candidate['student_id'])
+                    course_admission_counts[course] += 1
+        
+        # Phase 3: Alternative admissions and waitlisting
+        remaining_students = []
+        for student_row in student_course_matrix:
+            student_id = student_row['student_id']
+            student_data = student_row['student_data']
+            if student_id not in admitted_students:
+                max_alt_score = max([student_row[course]['score'] for course in course_names if student_row[course]['eligible'] and course != student_data['preferred_course']] or [0])
+                remaining_students.append((student_row, student_data, max_alt_score))
+        remaining_students.sort(key=lambda x: x[2], reverse=True)
+        
+        for student_row, student_data, _ in remaining_students:
+            student_id = student_data['student_id']
+            if student_id not in admitted_students:
+                smart_alternatives = find_smart_alternatives(
+                    student_data, student_course_matrix, course_capacities, course_admission_counts
+                )
+                admitted = False
+                for alternative in smart_alternatives:
+                    course = alternative['course']
+                    if course_admission_counts.get(course, 0) < course_capacities.get(course, 0):
+                        results.append({
+                            'student_id': student_id,
+                            'name': student_data['name'],
+                            'admitted_course': course,
+                            'status': 'ALTERNATIVE_ADMISSION',
+                            'score': alternative['score'],
+                            'base_score': alternative['base_score'],
+                            'similarity_score': alternative['similarity_score'],
+                            'original_preference': student_data['preferred_course'],
+                            'admission_type': 'SMART_ALTERNATIVE',
+                            'recommendation_reason': alternative['recommendation_reason'],
+                            'available_alternatives': len(smart_alternatives)
+                        })
+                        admitted_students.add(student_id)
+                        course_admission_counts[course] += 1
+                        admitted = True
+                        break
+                if not admitted:
+                    min_req_met = check_minimum_university_requirements(student_data)
+                    status = 'WAITLISTED' if min_req_met and smart_alternatives else 'NOT_QUALIFIED'
+                    reason = 'Qualified but no capacity in suitable alternatives' if min_req_met else 'Does not meet minimum requirements'
+                    results.append({
+                        'student_id': student_id,
+                        'name': student_data['name'],
+                        'admitted_course': 'NONE',
+                        'status': status,
+                        'score': 0,
+                        'reason': reason,
+                        'admission_type': status.upper(),
+                        'suggested_alternatives': [alt['course'] for alt in smart_alternatives[:3]] if smart_alternatives else []
+                    })
+        logger.info(f"Admission processing complete: {len(admitted_students)} admitted, {len(students) - len(admitted_students)} remaining")
+        return results
+    except Exception as e:
+        logger.error(f"Error in run_intelligent_admission_algorithm_v2: {str(e)}")
+        logger.error(traceback.format_exc())
+        st.error(f"Admission algorithm failed: {str(e)}")
+        return []
+
+def check_minimum_university_requirements(student_data):
+    """Check minimum university requirements"""
+    utme = student_data.get('utme_score', 0)
+    olevels = student_data.get('olevel_subjects', {})
+    utme_subjects = student_data.get('utme_subjects', [])
+    if utme < 160:
+        return False
+    required_olevel = ['English Language', 'Mathematics']
+    credits_count = sum(1 for _, grade in olevels.items() if grade <= 6)
+    if credits_count < 5:
+        return False
+    for req in required_olevel:
+        if req not in olevels or olevels[req] > 6:
+            return False
+    if "English Language" not in utme_subjects:
+        return False
+    return True
+
+def create_comprehensive_admission_report(admission_results, original_df, course_capacities):
+    """Create comprehensive admission report"""
+    results_df = pd.DataFrame(admission_results)
+    detailed_results = results_df.merge(
+        original_df[['student_id', 'name', 'utme_score', 'preferred_course']], 
+        on='student_id', 
+        how='left'
+    )
+    summary_stats = {
+        'Total Applications': len(original_df),
+        'Direct Admissions': len(results_df[results_df['status'] == 'ADMITTED']),
+        'Alternative Admissions': len(results_df[results_df['status'] == 'ALTERNATIVE_ADMISSION']),
+        'Not Qualified': len(results_df[results_df['status'] == 'NOT_QUALIFIED']),
+        'Waitlisted': len(results_df[results_df['status'] == 'WAITLISTED']),
+        'Overall Admission Rate': f"{((len(results_df[results_df['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])]) / len(original_df)) * 100):.1f}%",
+        'Processing Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    course_breakdown = results_df[results_df['status'].isin(['ADMITTED', 'ALTERNATIVE_ADMISSION'])].groupby('admitted_course').agg({
+        'student_id': 'count',
+        'score': ['mean', 'min', 'max']
+    }).round(3)
+    course_breakdown.columns = ['Students_Admitted', 'Avg_Score', 'Min_Score', 'Max_Score']
+    course_breakdown = course_breakdown.reset_index()
+    course_breakdown['Capacity'] = course_breakdown['admitted_course'].map(course_capacities)
+    course_breakdown['Utilization_Rate'] = ((course_breakdown['Students_Admitted'] / course_breakdown['Capacity']) * 100).round(1)
+    return detailed_results, summary_stats, course_breakdown
 
 def main():
     """Main Streamlit app"""
@@ -1656,4 +1975,4 @@ def main():
                 st.error(f"Error processing analytics: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    main()   
