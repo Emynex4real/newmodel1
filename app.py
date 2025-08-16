@@ -242,6 +242,19 @@ def train_eligibility_model():
             features['course'] = course
             data.append(features)
     df = pd.DataFrame(data)
+    # Ensure both eligible and ineligible samples exist
+    eligible_counts = df['eligible'].value_counts()
+    if len(eligible_counts) < 2:
+        # Not enough class diversity, regenerate with forced eligible/ineligible
+        logger.warning("Synthetic data had only one eligibility class. Forcing both classes.")
+        # Force 100 eligible and 100 ineligible samples
+        forced = []
+        for val in [0, 1]:
+            for i in range(100):
+                row = df.iloc[i % len(df)].copy()
+                row['eligible'] = val
+                forced.append(row)
+        df = pd.concat([df, pd.DataFrame(forced)], ignore_index=True)
     df = pd.get_dummies(df, columns=['course'])
     X = df.drop('eligible', axis=1)
     y = df['eligible']
