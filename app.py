@@ -1374,21 +1374,36 @@ def create_download_button(data, filename, label):
     st.markdown(href, unsafe_allow_html=True)
 # [All code from Part 1, including imports, constants, and functions up to create_download_button, is assumed to be above this point]
 
+import logging
+logger = logging.getLogger(__name__)
+
 def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selected_interests, learning_style, state, gender):
-    """Predict placement using ML model with robust input handling"""
+    """Predict placement using ML model with robust input handling and debugging"""
     global FEATURE_NAMES, MODEL, SCALER
     try:
         if MODEL is None or SCALER is None or FEATURE_NAMES is None:
             logger.info("Model not initialized, training now")
             MODEL, SCALER = train_placement_model()
         
-        # Input validation
+        # Robust input validation with debugging
         utme_subjects = utme_subjects if utme_subjects is not None else []
         selected_interests = selected_interests if selected_interests is not None else []
         olevel_subjects = olevel_subjects if olevel_subjects is not None else {}
         learning_style = learning_style if learning_style is not None else "Analytical Thinker"
         state = state if state is not None else ""
         gender = gender if gender is not None else ""
+        
+        # Log input values for debugging
+        logger.info(f"Inputs: utme_score={utme_score}, utme_subjects={utme_subjects}, "
+                    f"selected_interests={selected_interests}, olevel_subjects={olevel_subjects}, "
+                    f"learning_style={learning_style}, state={state}, gender={gender}")
+        
+        if not utme_subjects:
+            logger.warning("utme_subjects is empty")
+        if not selected_interests:
+            logger.warning("selected_interests is empty")
+        if len(olevel_subjects) < 5:
+            logger.warning(f"olevel_subjects has {len(olevel_subjects)} entries, expected at least 5")
         
         parsed_req = get_course_requirements()
         results = []
@@ -1504,17 +1519,17 @@ def individual_admission_ui():
         st.subheader("Personal Information")
         col1, col2 = st.columns(2)
         with col1:
-            name = st.text_input("Full Name", "John Doe")
-            state = st.selectbox("State of Origin", NIGERIAN_STATES)
+            name = st.text_input("Full Name", "John Doe", key="name")
+            state = st.selectbox("State of Origin", NIGERIAN_STATES, key="state")
         with col2:
-            gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-            learning_style = st.selectbox("Learning Style", ["Visual Learner", "Hands-on Learner", "Analytical Thinker", "People-oriented"])
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"], key="gender")
+            learning_style = st.selectbox("Learning Style", ["Visual Learner", "Hands-on Learner", "Analytical Thinker", "People-oriented"], key="learning_style")
         
         st.subheader("Academic Information")
-        utme_score = st.number_input("UTME Score", min_value=0, max_value=400, value=200)
+        utme_score = st.number_input("UTME Score", min_value=0, max_value=400, value=200, key="utme_score")
         utme_subjects = st.multiselect("UTME Subjects (Select 4, including English Language)", 
                                       common_subjects, default=["English Language"], key="utme_subjects")
-        preferred_course = st.selectbox("Preferred Course", course_names)
+        preferred_course = st.selectbox("Preferred Course", course_names, key="preferred_course")
         
         st.subheader("O'Level Subjects and Grades")
         olevel_subjects = {}
@@ -1534,12 +1549,15 @@ def individual_admission_ui():
         interests = st.multiselect("Interests", 
                                   ["Problem Solving & Logic", "Building & Construction", "Healthcare & Medicine", 
                                    "Environment & Nature", "Technology & Innovation", "Business & Management", 
-                                   "Research & Analysis", "Creative & Design"], key="interests")
+                                   "Research & Analysis", "Creative & Design"], default=None, key="interests")
         
         submitted = st.form_submit_button("Predict Admission")
         
         if submitted:
-            if len(utme_subjects) != 4:
+            # Log form inputs for debugging
+            logger.info(f"Form submitted: utme_subjects={utme_subjects}, interests={interests}, olevel_subjects={olevel_subjects}")
+            
+            if not utme_subjects or len(utme_subjects) != 4:
                 st.error("Please select exactly 4 UTME subjects, including English Language.")
                 return
             if "English Language" not in utme_subjects:
