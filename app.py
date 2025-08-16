@@ -1374,6 +1374,8 @@ def create_download_button(data, filename, label):
     st.markdown(href, unsafe_allow_html=True)
 # [All code from Part 1, including imports, constants, and functions up to create_download_button, is assumed to be above this point]
 
+# [All code from Part 1, including imports, constants, and functions up to create_download_button, is assumed to be above this point]
+
 def main():
     """Main Streamlit app function"""
     st.title("FUTA Admission Management System 🎓")
@@ -1402,16 +1404,21 @@ def individual_admission_ui():
         
         st.subheader("Academic Information")
         utme_score = st.number_input("UTME Score", min_value=0, max_value=400, value=200)
-        utme_subjects = st.multiselect("UTME Subjects (Select 4, including Use of English)", 
-                                      common_subjects, default=["Use of English"])
+        utme_subjects = st.multiselect("UTME Subjects (Select 4, including English Language)", 
+                                      common_subjects, default=["English Language"], key="utme_subjects")
         preferred_course = st.selectbox("Preferred Course", course_names)
         
         st.subheader("O'Level Subjects and Grades")
         olevel_subjects = {}
+        selected_subjects = set()  # Track selected subjects to prevent duplicates
         for i in range(5):
             col1, col2 = st.columns(2)
             with col1:
-                subject = st.selectbox(f"O'Level Subject {i+1}", common_subjects, key=f"subject_{i}")
+                # Filter out already selected subjects
+                available_subjects = [s for s in common_subjects if s not in selected_subjects]
+                subject = st.selectbox(f"O'Level Subject {i+1}", 
+                                      available_subjects, key=f"subject_{i}")
+                selected_subjects.add(subject)
             with col2:
                 grade = st.selectbox(f"Grade for {subject}", list(grade_map.keys()), key=f"grade_{i}")
                 olevel_subjects[subject] = grade_map[grade]
@@ -1419,16 +1426,19 @@ def individual_admission_ui():
         interests = st.multiselect("Interests", 
                                   ["Problem Solving & Logic", "Building & Construction", "Healthcare & Medicine", 
                                    "Environment & Nature", "Technology & Innovation", "Business & Management", 
-                                   "Research & Analysis", "Creative & Design"])
+                                   "Research & Analysis", "Creative & Design"], key="interests")
         
         submitted = st.form_submit_button("Predict Admission")
         
         if submitted:
             if len(utme_subjects) != 4:
-                st.error("Please select exactly 4 UTME subjects, including Use of English.")
+                st.error("Please select exactly 4 UTME subjects, including English Language.")
                 return
-            if "Use of English" not in utme_subjects:
-                st.error("Use of English is a mandatory UTME subject.")
+            if "English Language" not in utme_subjects:
+                st.error("English Language is a mandatory UTME subject.")
+                return
+            if len(olevel_subjects) < 5:
+                st.error("Please select at least 5 unique O'Level subjects.")
                 return
             
             prediction = predict_placement_enhanced(
@@ -1474,7 +1484,7 @@ def batch_processing_ui():
     - **name**: Student's full name
     - **utme_score**: UTME score (numeric, 0-400)
     - **preferred_course**: Preferred course of study
-    - **utme_subjects**: Comma-separated list of 4 UTME subjects (including Use of English)
+    - **utme_subjects**: Comma-separated list of 4 UTME subjects (including English Language)
     - **interests**: Comma-separated list of interests (optional)
     - **learning_style**: Learning style (optional, default: Analytical Thinker)
     - **state_of_origin**: State of origin (optional)
