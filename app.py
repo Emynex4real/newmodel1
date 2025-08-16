@@ -1716,25 +1716,30 @@ def main():
 
     with tab1:
         st.header("Individual Admission Prediction")
-        with st.form("individual_prediction_form"):
+        # Initialize session state for form inputs to ensure reset works
+        if 'form_key' not in st.session_state:
+            st.session_state.form_key = 0
+
+        with st.form("individual_prediction_form", clear_on_submit=True):
             st.subheader("Candidate Information")
             col1, col2 = st.columns(2)
             with col1:
-                name = st.text_input("Full Name", placeholder="Enter your full name")
-                state = st.selectbox("State of Origin", NIGERIAN_STATES, index=28)  # Default to Ondo
-                gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+                name = st.text_input("Full Name", placeholder="Enter your full name", key=f"name_{st.session_state.form_key}")
+                state = st.selectbox("State of Origin", NIGERIAN_STATES, index=28, key=f"state_{st.session_state.form_key}")  # Default to Ondo
+                gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"gender_{st.session_state.form_key}")
             with col2:
-                utme_score = st.number_input("UTME Score", min_value=0, max_value=400, step=1)
-                learning_style = st.selectbox("Learning Style", list(learning_styles.keys()), index=2)  # Default to Analytical Thinker
+                utme_score = st.number_input("UTME Score", min_value=0, max_value=400, step=1, key=f"utme_score_{st.session_state.form_key}")
+                learning_style = st.selectbox("Learning Style", list(learning_styles.keys()), index=2, key=f"learning_style_{st.session_state.form_key}")  # Default to Analytical Thinker
 
             st.subheader("UTME Subjects")
             utme_subjects = st.multiselect(
                 "Select 4 UTME Subjects (English Language is mandatory)",
                 common_subjects,
                 default=["English Language"],
-                max_selections=4
+                max_selections=4,
+                key=f"utme_subjects_{st.session_state.form_key}"
             )
-            utme_subjects = utme_subjects or []  # Ensure non-None
+            utme_subjects = utme_subjects if utme_subjects is not None else []  # Ensure non-None
 
             st.subheader("O'Level Results")
             st.write("Select at least 5 subjects and their grades")
@@ -1742,24 +1747,38 @@ def main():
             for i in range(5):
                 col1, col2 = st.columns(2)
                 with col1:
-                    subject = st.selectbox(f"O'Level Subject {i+1}", [""] + common_subjects, key=f"olevel_sub_{i}")
+                    subject = st.selectbox(f"O'Level Subject {i+1}", [""] + common_subjects, key=f"olevel_sub_{i}_{st.session_state.form_key}")
                 with col2:
-                    grade = st.selectbox(f"Grade {i+1}", list(grade_map.keys()), key=f"olevel_grade_{i}")
+                    grade = st.selectbox(f"Grade {i+1}", list(grade_map.keys()), key=f"olevel_grade_{i}_{st.session_state.form_key}")
                 if subject and subject != "":
                     olevel_subjects[subject] = grade_map[grade]
 
             st.subheader("Interests")
-            interests = st.multiselect("Select Your Interests", list(interest_categories.keys()))
-            interests = interests or []  # Ensure non-None
+            interests = st.multiselect("Select Your Interests", list(interest_categories.keys()), key=f"interests_{st.session_state.form_key}")
+            interests = interests if interests is not None else []  # Ensure non-None
 
-            submit_button = st.form_submit_button("Predict Admission")
+            col_submit, col_reset = st.columns(2)
+            with col_submit:
+                submit_button = st.form_submit_button("Predict Admission")
+            with col_reset:
+                reset_button = st.form_submit_button("Reset Form")
+
+            if reset_button:
+                st.session_state.form_key += 1  # Increment key to reset form inputs
+                st.experimental_rerun()  # Force rerun to clear form
+
             if submit_button:
-                logger.info("Individual admission form submitted: name=%s, utme_score=%s, utme_subjects=%s, interests=%s",
-                            name, utme_score, utme_subjects, interests)
-                if len(utme_subjects) != 4:
+                logger.info("Individual admission form submitted: name=%s, utme_score=%s, utme_subjects=%s, interests=%s, olevel_subjects=%s",
+                            name, utme_score, utme_subjects, interests, olevel_subjects)
+                # Additional validation to catch None or empty inputs
+                if not name or name.strip() == "":
+                    st.error("Please enter a valid full name.")
+                elif utme_score <= 0:
+                    st.error("Please enter a valid UTME score greater than 0.")
+                elif not utme_subjects or len(utme_subjects) != 4:
                     st.error("Please select exactly 4 UTME subjects, including English Language.")
-                elif len(olevel_subjects) < 5:
-                    st.error("Please select at least 5 O'Level subjects with grades.")
+                elif not olevel_subjects or len(olevel_subjects) < 5:
+                    st.error("Please select at least 5 O'Level subjects with valid grades.")
                 elif "English Language" not in utme_subjects:
                     st.error("English Language is a mandatory UTME subject.")
                 else:
@@ -1797,10 +1816,12 @@ def main():
                                     },
                                     hide_index=True
                                 )
+                        # Increment form_key after successful submission to prepare for next input
+                        st.session_state.form_key += 1
                     except Exception as e:
                         logger.error(f"Error during individual prediction: {str(e)}")
                         logger.error(traceback.format_exc())
-                        st.error(f"An error occurred during prediction: {str(e)}")
+                        st.error(f"Prediction failed: {str(e)}")
 
     with tab2:
         st.header("Batch Admission Processing")
