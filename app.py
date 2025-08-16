@@ -201,19 +201,25 @@ def train_eligibility_model():
     logger.info("Training eligibility model")
     data = []
     parsed_req = get_course_requirements()
-    grade_probs = {"B3": 0.1, "C4": 0.2, "C5": 0.3, "C6": 0.4}  # Skewed to realistic grades
-    for _ in range(1000):  # Reduced samples for ~90% accuracy
-        utme = np.clip(np.random.normal(220, 30) + np.random.normal(0, 5), 180, 400)  # Add noise
-        num_subjects = np.random.randint(5, len(common_subjects) + 1)
+    # Enhanced: Use more realistic grade and UTME distributions based on JAMB/FUTA stats
+    grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}  # More realistic
+    for _ in range(1500):  # Slightly more samples for better generalization
+        # UTME: Most students score between 180-300, with a long tail
+        utme = np.clip(np.random.normal(210, 35) + np.random.normal(0, 7), 120, 400)
+        # O'Level: 5-6 subjects, grades skewed to C4-C6, but some A/B
+        num_subjects = np.random.choice([5, 6], p=[0.7, 0.3])
         selected_olevel_subs = np.random.choice(common_subjects, num_subjects, replace=False)
         olevels = {sub: np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values())) for sub in selected_olevel_subs}
-        olevels = {k: grade_map[v] + np.random.normal(0, 0.1) for k, v in olevels.items()}  # Add noise to grades
-        utme_subjects = ["English Language"] + list(np.random.choice(
-            [s for s in common_subjects if s != "English Language"], 3, replace=False))
-        interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, len(interest_categories.keys()) + 1), replace=False).tolist()
-        learning = np.random.choice(list(learning_styles.keys()))
-        state = np.random.choice(NIGERIAN_STATES)
-        gender = np.random.choice(["Male", "Female", "Other"])
+        olevels = {k: grade_map.get(v, 1) + np.random.normal(0, 0.15) for k, v in olevels.items()}
+        # UTME subjects: English + 3 others, with some realistic combos
+        utme_subjects = ["English Language"] + list(np.random.choice([s for s in common_subjects if s != "English Language"], 3, replace=False))
+        # Interests: 1-2, weighted to most common
+        interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2], p=[0.7, 0.3]), replace=False).tolist()
+        # Learning style: Analytical most common
+        learning = np.random.choice(list(learning_styles.keys()), p=[0.5, 0.25, 0.25])
+        # State: North, South, and Lagos more common
+        state = np.random.choice(NIGERIAN_STATES, p=[0.03]*10 + [0.04]*10 + [0.06]*10 + [0.15])
+        gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
         for course in course_names:
             eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
             features = {
@@ -256,19 +262,18 @@ def train_scoring_model():
     logger.info("Training scoring model")
     data = []
     parsed_req = get_course_requirements()
-    grade_probs = {"B3": 0.1, "C4": 0.2, "C5": 0.3, "C6": 0.4}
-    for _ in range(1000):
-        utme = np.clip(np.random.normal(220, 30) + np.random.normal(0, 5), 180, 400)
-        num_subjects = np.random.randint(5, len(common_subjects) + 1)
+    grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}
+    for _ in range(1500):
+        utme = np.clip(np.random.normal(210, 35) + np.random.normal(0, 7), 120, 400)
+        num_subjects = np.random.choice([5, 6], p=[0.7, 0.3])
         selected_olevel_subs = np.random.choice(common_subjects, num_subjects, replace=False)
         olevels = {sub: np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values())) for sub in selected_olevel_subs}
-        olevels = {k: grade_map[v] + np.random.normal(0, 0.1) for k, v in olevels.items()}
-        utme_subjects = ["English Language"] + list(np.random.choice(
-            [s for s in common_subjects if s != "English Language"], 3, replace=False))
-        interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, len(interest_categories.keys()) + 1), replace=False).tolist()
-        learning = np.random.choice(list(learning_styles.keys()))
-        state = np.random.choice(NIGERIAN_STATES)
-        gender = np.random.choice(["Male", "Female", "Other"])
+        olevels = {k: grade_map.get(v, 1) + np.random.normal(0, 0.15) for k, v in olevels.items()}
+        utme_subjects = ["English Language"] + list(np.random.choice([s for s in common_subjects if s != "English Language"], 3, replace=False))
+        interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2], p=[0.7, 0.3]), replace=False).tolist()
+        learning = np.random.choice(list(learning_styles.keys()), p=[0.5, 0.25, 0.25])
+        state = np.random.choice(NIGERIAN_STATES, p=[0.03]*10 + [0.04]*10 + [0.06]*10 + [0.15])
+        gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
         for course in course_names:
             eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
             score = 0
@@ -631,7 +636,16 @@ def main():
                 st.bar_chart(feat_imp2.head(15))
         st.header("Individual Admission Prediction")
         form_key = f"individual_prediction_form_{st.session_state.form_key_counter}"
-
+        # Reset form state for each new prediction
+        if 'last_form_key' not in st.session_state or st.session_state.last_form_key != form_key:
+            st.session_state.last_form_key = form_key
+            st.session_state[f"name_{st.session_state.form_key_counter}"] = ""
+            st.session_state[f"utme_score_{st.session_state.form_key_counter}"] = 0
+            st.session_state[f"utme_subjects_{st.session_state.form_key_counter}"] = ["English Language"]
+            st.session_state[f"interests_{st.session_state.form_key_counter}"] = []
+            for i in range(5):
+                st.session_state[f"olevel_sub_{i}_{st.session_state.form_key_counter}"] = ""
+                st.session_state[f"olevel_grade_{i}_{st.session_state.form_key_counter}"] = "C6"
         with st.form(form_key, clear_on_submit=True):
             st.subheader("Candidate Information")
             col1, col2 = st.columns(2)
