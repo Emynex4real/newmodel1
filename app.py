@@ -201,35 +201,73 @@ def train_eligibility_model():
     logger.info("Training eligibility model")
     data = []
     parsed_req = get_course_requirements()
-    # Enhanced: Use more realistic grade and UTME distributions based on JAMB/FUTA stats
-    grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}  # More realistic
-    for _ in range(1500):  # Slightly more samples for better generalization
-        # UTME: Most students score between 180-300, with a long tail
-        utme = np.clip(np.random.normal(210, 35) + np.random.normal(0, 7), 120, 400)
-        # O'Level: 5-6 subjects, grades skewed to C4-C6, but some A/B
-        num_subjects = np.random.choice([5, 6], p=[0.7, 0.3])
-        selected_olevel_subs = np.random.choice(common_subjects, num_subjects, replace=False)
-        olevels = {sub: np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values())) for sub in selected_olevel_subs}
-        olevels = {k: grade_map.get(v, 1) + np.random.normal(0, 0.15) for k, v in olevels.items()}
-        # UTME subjects: English + 3 others, with some realistic combos
-        utme_subjects = ["English Language"] + list(np.random.choice([s for s in common_subjects if s != "English Language"], 3, replace=False))
-        # Interests: 1-2, weighted to most common
-        interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2], p=[0.7, 0.3]), replace=False).tolist()
-        # Learning style: Analytical most common
-        learning = np.random.choice(list(learning_styles.keys()), p=[0.5, 0.25, 0.25])
-    # State: North, South, and Lagos more common
-    # Build a probability vector of length 37 (for 37 states)
-    state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]  # 10+10+5+10+1+1=37
-    state_probs = np.array(state_probs)
-    state_probs = state_probs / state_probs.sum()  # Normalize to sum to 1
-    state = np.random.choice(NIGERIAN_STATES, p=state_probs)
-    gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
+    # Explicitly generate both eligible and ineligible samples for each course
+    grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}
     for course in course_names:
-            eligible = is_eligible(olevels, utme_subjects, course, parsed_req) and utme >= st.session_state.cutoff_marks.get(course, 180)
-            features = {
-                'utme': utme,
-                'eligible': 1 if eligible else 0
-            }
+        # Generate eligible samples
+        for _ in range(400):
+            utme = np.random.randint(st.session_state.cutoff_marks[course], 400)
+            olevels = {}
+            reqs = get_course_requirements()[course]
+            for sub in reqs['olevel_required']:
+                olevels[sub] = grade_map['C6'] + np.random.choice([0,1,2])  # C6 or better
+            for sub in reqs['olevel_any']:
+                olevels[sub] = grade_map['C6'] + np.random.choice([0,1,2]) if np.random.rand() < 0.5 else 0
+            # Fill up to 5 subjects
+            for sub in common_subjects:
+                if sub not in olevels and len(olevels) < 5:
+                    olevels[sub] = grade_map['C6']
+            utme_subjects = reqs['utme_required'][:]
+            while len(utme_subjects) < 4:
+                extra = np.random.choice([s for s in common_subjects if s not in utme_subjects])
+                utme_subjects.append(extra)
+            interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2]), replace=False).tolist()
+            learning = np.random.choice(list(learning_styles.keys()))
+            state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
+            state_probs = np.array(state_probs)
+            state_probs = state_probs / state_probs.sum()
+            state = np.random.choice(NIGERIAN_STATES, p=state_probs)
+            gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
+            features = {'utme': utme, 'eligible': 1}
+            for sub in common_subjects:
+                features[sub] = olevels.get(sub, 9)
+            for utme_sub in common_subjects:
+                features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
+            for int_ in interest_categories.keys():
+                features[int_] = 1 if int_ in interests else 0
+            for ls in learning_styles.keys():
+                features[f'ls_{ls}'] = 1 if learning == ls else 0
+            features['diversity_score'] = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
+            features['course'] = course
+            data.append(features)
+        # Generate ineligible samples
+        for _ in range(400):
+            utme = np.random.randint(100, st.session_state.cutoff_marks[course])
+            olevels = {}
+            reqs = get_course_requirements()[course]
+            # Purposely miss at least one required subject or grade
+            for sub in reqs['olevel_required']:
+                olevels[sub] = grade_map['C6'] - 1  # Below minimum
+            for sub in reqs['olevel_any']:
+                olevels[sub] = grade_map['C6'] - 1 if np.random.rand() < 0.5 else 0
+            for sub in common_subjects:
+                if sub not in olevels and len(olevels) < 5:
+                    olevels[sub] = 0
+            utme_subjects = reqs['utme_required'][:]
+            # Remove one required subject
+            if len(utme_subjects) > 1:
+                utme_subjects = utme_subjects[:-1]
+            while len(utme_subjects) < 4:
+                extra = np.random.choice([s for s in common_subjects if s not in utme_subjects])
+                utme_subjects.append(extra)
+            interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2]), replace=False).tolist()
+            learning = np.random.choice(list(learning_styles.keys()))
+            state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
+            state_probs = np.array(state_probs)
+            state_probs = state_probs / state_probs.sum()
+            state = np.random.choice(NIGERIAN_STATES, p=state_probs)
+            gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
+            features = {'utme': utme, 'eligible': 0}
             for sub in common_subjects:
                 features[sub] = olevels.get(sub, 9)
             for utme_sub in common_subjects:
