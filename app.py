@@ -621,30 +621,20 @@ async def process_with_timeout(coro, timeout: float = 300):
 
 async def process_csv_applications(df, course_capacities, jamb_data, neco_data, update_progress):
     logger.info("Starting batch processing for %d applications", len(df))
-    required_columns = [
-        'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
-        'interests', 'learning_style', 'state_of_origin', 'gender'
-    ]
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        error_msg = f"Missing required columns: {', '.join(missing_cols)}"
-        logger.error(error_msg)
-        return [], pd.DataFrame(), [{"row": 0, "student_id": "N/A", "error": error_msg}]
-
     admission_results = []
     eligible_courses_list = []
     invalid_rows = []
     total_rows = len(df)
-    
+
     for idx, row in df.iterrows():
         try:
             student_id = row.get('student_id', 'Unknown')
             name = row.get('name', '').strip()
-            utme_score = row.get('utme_score', 0)
+            utme_score = row.get('utme_score', -1)
             preferred_course = row.get('preferred_course', '').strip()
-            utme_subjects = row.get('utme_subjects', '').split(',')
+            utme_subjects = row.get('utme_subjects', [])
             utme_subjects = [s.strip() for s in utme_subjects if s.strip()]
-            interests = row.get('interests', '').split(',')
+            interests = row.get('interests', [])
             interests = [i.strip() for i in interests if i.strip()]
             learning_style = row.get('learning_style', '').strip()
             state = row.get('state_of_origin', '').strip()
@@ -657,6 +647,7 @@ async def process_csv_applications(df, course_capacities, jamb_data, neco_data, 
                     if pd.notna(row[col]) and row[col] in grade_map:
                         olevel_subjects[subject] = grade_map[row[col]]
 
+            # Validation checks
             if not name:
                 invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid name"})
                 continue
@@ -1011,48 +1002,58 @@ async def main():
                 if col not in df.columns:
                     df[col] = 0
 
+            # Handle NaN and invalid types in string columns
+            for col in ['student_id', 'name', 'preferred_course', 'utme_subjects', 'interests', 'learning_style', 'state_of_origin', 'gender']:
+                df[col] = df[col].fillna('').astype(str).str.strip()
+
             # Fill NaN in utme_score with -1 to mark invalid rows
             df['utme_score'] = df['utme_score'].fillna(-1)
 
-            # Identify rows with non-numeric or invalid utme_score
-            invalid_utme_rows = df[
-                (df['utme_score'].isna()) |
-                (df['utme_score'] < 0) |
-                (df['utme_score'] > 400)
-            ]
-            if not invalid_utme_rows.empty:
-                st.warning("Some rows have invalid UTME scores (non-numeric, missing, or out of range 0–400). These will be reported in the invalid rows output.")
-                invalid_utme_df = invalid_utme_rows[['student_id', 'name', 'utme_score']].copy()
-                invalid_utme_df['error'] = invalid_utme_df['utme_score'].apply(
-                    lambda x: "Non-numeric or missing" if pd.isna(x) or x == -1 else "Out of range (0–400)"
-                )
-                st.subheader("Rows with Invalid UTME Scores")
+            # Validate utme_score and utme_subjects early
+            invalid_rows = []
+            for idx, row in df.iterrows():
+                student_id = row.get('student_id', 'Unknown')
+                try:
+                    if row['utme_score'] < 0 or row['utme_score'] > 400:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid UTME score (must be 0–400)"})
+                    utme_subjects = row['utme_subjects'].split(',') if row['utme_subjects'] else []
+                    utme_subjects = [s.strip() for s in utme_subjects if s.strip()]
+                    if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
+                    if not row['student_id']:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid student_id"})
+                    if not row['name']:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid name"})
+                    if row['preferred_course'] not in course_names:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid preferred course"})
+                    if row['state_of_origin'] not in NIGERIAN_STATES:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid state of origin"})
+                    if row['gender'] not in ["Male", "Female"]:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid gender"})
+                    if row['learning_style'] not in learning_styles:
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid learning style"})
+                except Exception as e:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": f"Validation error: {str(e)}"})
+
+            # Filter out invalid rows
+            invalid_indices = [r['row'] - 2 for r in invalid_rows]
+            valid_df = df[~df.index.isin(invalid_indices)].copy()
+
+            if invalid_rows:
+                st.warning("Some rows have invalid data (e.g., UTME score or subjects). These will be reported in the invalid rows output.")
+                invalid_df = pd.DataFrame(invalid_rows)
+                st.subheader("Invalid Rows Detected")
                 st.dataframe(
-                    invalid_utme_df,
+                    invalid_df,
                     use_container_width=True,
                     column_config={
+                        'row': "Row Number",
                         'student_id': "Student ID",
-                        'name': "Name",
-                        'utme_score': "UTME Score",
                         'error': "Error Message"
                     }
                 )
-
-            # Filter out invalid rows for processing
-            valid_df = df[
-                (~df['utme_score'].isna()) &
-                (df['utme_score'] >= 0) &
-                (df['utme_score'] <= 400)
-            ].copy()
-
-            if valid_df.empty:
-                st.error("No valid rows to process after filtering invalid UTME scores.")
-                invalid_rows = [
-                    {"row": idx + 2, "student_id": row['student_id'], "error": "Invalid UTME score"}
-                    for idx, row in invalid_utme_rows.iterrows()
-                ]
                 invalid_csv_buffer = io.StringIO()
-                pd.DataFrame(invalid_rows).to_csv(invalid_csv_buffer, index=False)
+                invalid_df.to_csv(invalid_csv_buffer, index=False)
                 st.download_button(
                     label="Download Invalid Rows Report",
                     data=invalid_csv_buffer.getvalue(),
@@ -1060,58 +1061,24 @@ async def main():
                     mime="text/csv",
                     key="invalid_rows_download_initial"
                 )
+
+            if valid_df.empty:
+                st.error("No valid rows to process after validation checks.")
                 st.session_state.uploader_key += 1
                 st.rerun()
 
             # Convert utme_subjects and interests to lists
             valid_df['utme_subjects'] = valid_df['utme_subjects'].apply(
-                lambda x: x.split(',') if isinstance(x, str) and x.strip() else []
+                lambda x: x.split(',') if x.strip() else []
             )
             valid_df['interests'] = valid_df['interests'].apply(
-                lambda x: x.split(',') if isinstance(x, str) and x.strip() else []
+                lambda x: x.split(',') if x.strip() else []
             )
 
             # Convert O'Level grades to numeric scores (A1=6, B2=5, B3=4, C4=3, C5=2, C6=1)
             for col in optional_columns + ['english_language_grade']:
                 if col in valid_df.columns:
                     valid_df[col] = valid_df[col].apply(lambda x: grade_map.get(str(x).strip(), 0)).astype(int)
-
-            # Additional validation for required fields
-            invalid_rows = []
-            for idx, row in valid_df.iterrows():
-                student_id = row.get('student_id', 'Unknown')
-                if pd.isna(row['student_id']) or not str(row['student_id']).strip():
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid student_id"})
-                elif pd.isna(row['name']) or not str(row['name']).strip():
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid name"})
-                elif len(row['utme_subjects']) != 4 or "English Language" not in row['utme_subjects']:
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
-                elif row['preferred_course'] not in course_names:
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid preferred course"})
-                elif row['state_of_origin'] not in NIGERIAN_STATES:
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid state of origin"})
-                elif row['gender'] not in ["Male", "Female"]:
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid gender"})
-                elif row['learning_style'] not in learning_styles:
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid learning style"})
-
-            # Filter out rows with validation errors
-            invalid_indices = [r['row'] - 2 for r in invalid_rows]
-            valid_df = valid_df[~valid_df.index.isin(invalid_indices)]
-
-            if valid_df.empty:
-                st.error("No valid rows to process after validation checks.")
-                invalid_csv_buffer = io.StringIO()
-                pd.DataFrame(invalid_rows).to_csv(invalid_csv_buffer, index=False)
-                st.download_button(
-                    label="Download Invalid Rows Report",
-                    data=invalid_csv_buffer.getvalue(),
-                    file_name="invalid_rows.csv",
-                    mime="text/csv",
-                    key="invalid_rows_download_validation"
-                )
-                st.session_state.uploader_key += 1
-                st.rerun()
 
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -1135,7 +1102,7 @@ async def main():
 
             admission_results, eligible_courses_df, processing_invalid_rows = result
             # Combine invalid rows from preprocessing and processing
-            invalid_rows.extend(processing_invalid_rows)
+            invalid_rows.extend(processing_invalid_rows or [])
 
             # Initialize session state
             st.session_state.batch_results = admission_results or []
@@ -1248,29 +1215,6 @@ async def main():
 
             else:
                 st.error("No valid applications processed. Check the invalid rows report.")
-                if invalid_rows:
-                    invalid_df = pd.DataFrame(invalid_rows)
-                    st.dataframe(
-                        invalid_df,
-                        use_container_width=True,
-                        column_config={
-                            'row': "Row Number",
-                            'student_id': "Student ID",
-                            'error': "Error Message"
-                        }
-                    )
-                    invalid_csv_buffer = io.StringIO()
-                    invalid_df.to_csv(invalid_csv_buffer, index=False)
-                    st.download_button(
-                        label="Download Invalid Rows Report",
-                        data=invalid_csv_buffer.getvalue(),
-                        file_name="invalid_rows.csv",
-                        mime="text/csv",
-                        key="invalid_rows_download_2"
-                    )
-
-            st.session_state.uploader_key += 1
-            st.rerun()
 
         except Exception as e:
             logger.error("Error processing CSV: %s", str(e))
