@@ -67,14 +67,12 @@ def load_jamb_data():
     return pd.DataFrame({
         'course': course_names,
         'faculty': (
-            ['Engineering'] * 5 + 
-            ['Science'] * 8 + 
-            ['Agriculture'] * 5 + 
-            ['Environmental Sciences'] * 6 + 
-            ['Technology'] * 7 + 
-            ['Management Sciences'] * 9 +  # Includes Accounting Technology to Economics
-            ['Environmental Sciences'] * 5 +  # Includes Building Technology, Remote Sensing
-            ['Science'] * 5  # Includes Bioinformatics, Biotechnology, Data Science
+            ['Engineering'] * 6 +  # Computer Science to Chemical Engineering, Agricultural Engineering
+            ['Science'] * 12 +     # Biochemistry to Meteorology, Bioinformatics, Biotechnology, Data Science
+            ['Agriculture'] * 6 +  # Agricultural Economics to Fisheries
+            ['Environmental Sciences'] * 11 +  # Architecture to Industrial Design, Surveying to Applied Geology, Building Technology, Remote Sensing
+            ['Technology'] * 7 +   # Information Technology to Metallurgical Engineering
+            ['Management Sciences'] * 7  # Project Management to Economics
         ),
         'total_2017': np.random.randint(100, 1000, size=len(course_names)),
         'total_2018': np.random.randint(100, 1000, size=len(course_names))
@@ -90,12 +88,12 @@ def load_neco_data():
 def get_course_requirements():
     requirements = {}
     for course in course_names:
-        faculty = 'Engineering' if course in course_names[:5] else \
-                 'Science' if course in course_names[5:13] or course in course_names[47:50] else \
-                 'Agriculture' if course in course_names[13:18] else \
-                 'Environmental Sciences' if course in course_names[18:24] or course in course_names[45:47] else \
-                 'Technology' if course in course_names[24:31] else \
-                 'Management Sciences' if course in course_names[31:35] or course in course_names[40:45] else \
+        faculty = 'Engineering' if course in course_names[:5] or course == course_names[35] else \
+                 'Science' if course in course_names[5:13] or course in course_names[46:49] else \
+                 'Agriculture' if course in course_names[13:19] else \
+                 'Environmental Sciences' if course in course_names[19:25] or course in course_names[32:35] or course in course_names[44:46] else \
+                 'Technology' if course in course_names[25:32] else \
+                 'Management Sciences' if course in course_names[37:44] else \
                  'Unknown'  # Fallback, should not occur
         required_subjects = ["English Language", "Mathematics", "Physics", "Chemistry"] if 'Engineering' in faculty or 'Science' in faculty else \
                            ["English Language", "Mathematics", "Biology", "Agricultural Science"] if 'Agriculture' in faculty else \
