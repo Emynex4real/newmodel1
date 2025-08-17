@@ -630,7 +630,7 @@ async def process_csv_applications(df, course_capacities, jamb_data, neco_data, 
         try:
             student_id = row.get('student_id', 'Unknown')
             name = row.get('name', '').strip()
-            utme_score = row.get('utme_score', -1)
+            utme_score = float(row.get('utme_score', -1))
             preferred_course = row.get('preferred_course', '').strip()
             utme_subjects = row.get('utme_subjects', [])
             utme_subjects = [s.strip() for s in utme_subjects if s.strip()]
@@ -725,6 +725,7 @@ async def process_csv_applications(df, course_capacities, jamb_data, neco_data, 
             invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": str(e)})
 
     eligible_courses_df = pd.DataFrame(eligible_courses_list)
+    logger.info("Completed batch processing: %d results, %d invalid rows", len(admission_results), len(invalid_rows))
     return admission_results, eligible_courses_df, invalid_rows
 
 def create_comprehensive_admission_report(admission_results, input_df, course_capacities):
@@ -965,7 +966,7 @@ async def main():
 
     if uploaded_file:
         try:
-            # Read CSV with robust parsing and converter for utme_score
+            # Read CSV with robust parsing
             df = pd.read_csv(
                 uploaded_file,
                 skipinitialspace=True,
@@ -1009,17 +1010,17 @@ async def main():
             # Fill NaN in utme_score with -1 to mark invalid rows
             df['utme_score'] = df['utme_score'].fillna(-1)
 
-            # Validate utme_score and utme_subjects early
+            # Validate utme_score, utme_subjects, and other fields early
             invalid_rows = []
             for idx, row in df.iterrows():
                 student_id = row.get('student_id', 'Unknown')
                 try:
                     if row['utme_score'] < 0 or row['utme_score'] > 400:
                         invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid UTME score (must be 0–400)"})
-                    utme_subjects = row['utme_subjects'].split(',') if row['utme_subjects'] else []
+                    utme_subjects = row['utme_subjects'].split(',') if row['utme_subjects'].strip() else []
                     utme_subjects = [s.strip() for s in utme_subjects if s.strip()]
                     if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
-                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": f"Invalid UTME subjects: {row['utme_subjects']} (must have exactly 4 subjects including English Language)"})
                     if not row['student_id']:
                         invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid student_id"})
                     if not row['name']:
@@ -1075,7 +1076,7 @@ async def main():
                 lambda x: x.split(',') if x.strip() else []
             )
 
-            # Convert O'Level grades to numeric scores (A1=6, B2=5, B3=4, C4=3, C5=2, C6=1)
+            # Convert O'Level grades to numeric scores
             for col in optional_columns + ['english_language_grade']:
                 if col in valid_df.columns:
                     valid_df[col] = valid_df[col].apply(lambda x: grade_map.get(str(x).strip(), 0)).astype(int)
@@ -1096,13 +1097,19 @@ async def main():
             # Ensure result is a tuple
             if not isinstance(result, tuple) or len(result) != 3:
                 logger.error("process_csv_applications returned invalid result: %s", result)
-                st.error("Processing failed: Invalid return type from process_csv_applications.")
+                st.error(f"Processing failed: Invalid return type from process_csv_applications: {result}")
+                invalid_rows.append({"row": 0, "student_id": "N/A", "error": f"Invalid return type: {result}"})
                 st.session_state.uploader_key += 1
                 st.rerun()
 
             admission_results, eligible_courses_df, processing_invalid_rows = result
-            # Combine invalid rows from preprocessing and processing
-            invalid_rows.extend(processing_invalid_rows or [])
+            # Combine invalid rows safely
+            if processing_invalid_rows and isinstance(processing_invalid_rows, list):
+                invalid_rows.extend(processing_invalid_rows)
+            else:
+                logger.warning("processing_invalid_rows is not a list: %s", processing_invalid_rows)
+                if processing_invalid_rows:
+                    invalid_rows.append({"row": 0, "student_id": "N/A", "error": f"Invalid processing_invalid_rows type: {type(processing_invalid_rows)}"})
 
             # Initialize session state
             st.session_state.batch_results = admission_results or []
