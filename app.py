@@ -75,21 +75,21 @@ def load_jamb_data():
     return pd.DataFrame({
         'course': course_names,
         'faculty': (
-            ['Agriculture'] * 4 +  # Agric Extension to Animal Production
-            ['Science'] * 7 +      # Applied Biology to Biotechnology
-            ['Environmental Sciences'] * 3 +  # Architecture, Building, Estate Management
-            ['Engineering'] * 4 +  # Civil Engineering to Computer Science
-            ['Agriculture'] * 2 +  # Crop Soil & Pest Management, Fisheries & Aquaculture
-            ['Technology'] * 3 +   # Cyber Security to Information Technology
-            ['Agriculture'] * 2 +  # Ecotourism & Wildlife Management, Forestry & Wood Technology
-            ['Science'] * 2 +      # Human Anatomy, Medical Laboratory Science
-            ['Engineering'] * 3 +  # Industrial & Production to Mechanical Engineering
-            ['Science'] * 4 +      # Industrial Chemistry to Microbiology
-            ['Engineering'] * 2 +  # Mining Engineering, Metallurgical & Materials Engineering
-            ['Science'] * 2 +      # Physics, Physiology
-            ['Environmental Sciences'] * 3 +  # Quantity Surveying to Urban & Regional Planning
-            ['Technology'] * 1 +   # Software Engineering
-            ['Science'] * 1        # Statistics
+            ['Agriculture'] * 9 +  # Agric Extension, Agricultural Engineering, Agriculture Resources Economics,
+                                  # Animal Production, Crop Soil & Pest Management, Ecotourism & Wildlife Management,
+                                  # Fisheries & Aquaculture, Food Science & Technology, Forestry & Wood Technology
+            ['Science'] * 17 +    # Applied Biology, Applied Geophysics, Biochemistry, Biology, Biomedical Technology,
+                                  # Biotechnology, Human Anatomy, Industrial Chemistry, Industrial Mathematics,
+                                  # Marine Science & Technology, Mathematics, Medical Laboratory Science, Meteorology,
+                                  # Microbiology, Physics, Physiology, Statistics
+            ['Environmental Sciences'] * 7 +  # Architecture, Building, Estate Management, Quantity Surveying,
+                                              # Integrates & Geoscience Information System, Surveying & Geoinformatics,
+                                              # Urban & Regional Planning
+            ['Engineering'] * 8 +  # Civil Engineering, Computer Engineering, Computer Science,
+                                   # Electrical/Electronics Engineering, Industrial & Production Engineering,
+                                   # Mechanical Engineering, Metallurgical & Materials Engineering, Mining Engineering
+            ['Technology'] * 6    # Cyber Security, Industrial Design, Information & Communication Technology,
+                                  # Information Systems, Information Technology, Software Engineering
         ),
         'total_2017': np.random.randint(100, 1000, size=len(course_names)),
         'total_2018': np.random.randint(100, 1000, size=len(course_names))
