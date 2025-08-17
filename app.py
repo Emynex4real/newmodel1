@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 import logging
 from datetime import datetime
@@ -408,27 +407,7 @@ def generate_admission_letter(student_data):
     buffer.seek(0)
     return buffer
 
-def train_eligibility_model():
-    np.random.seed(42)
-    n_samples = 1000
-    data = {
-        'utme_score': np.random.randint(150, 400, n_samples),
-        'olevel_avg': np.random.uniform(1, 6, n_samples),
-        'interest_match': np.random.uniform(0, 1, n_samples),
-        'learning_style_score': np.random.uniform(0, 1, n_samples),
-        'diversity_score': np.random.uniform(0, 0.2, n_samples)
-    }
-    df = pd.DataFrame(data)
-    y = np.random.choice(course_names + ['UNASSIGNED'], n_samples)
-    
-    le = LabelEncoder()
-    y_encoded = le.fit_transform(y)
-    
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(df, y_encoded)
-    return model, le
-
-def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, interests, learning_style, state, gender, model, label_encoder):
+def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, interests, learning_style, state, gender, preferred_course):
     requirements = get_course_requirements()
     neco_data = load_neco_data()
     eligible_courses = []
@@ -477,10 +456,29 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
             failure_reasons.append(f"{course}: O'Level requirements not met for: {', '.join(missing_olevel)}")
         
         if meets_utme and meets_subjects and meets_olevel:
-            interest_score = 0.3 if any(interest.lower() in course.lower() for interest in interests) else 0.1
-            learning_style_score = 0.2 if learning_style in ['Analytical Thinker', 'Practical Learner'] and 'Engineering' in course else 0.1
+            # Interest score: Higher if course matches any interest (make it more granular/realistic)
+            interest_score = sum(0.1 for interest in interests if interest.lower() in course.lower()) + 0.1  # Base 0.1, +0.1 per match, up to 0.4 if multiple
+            interest_score = min(interest_score, 0.4)  # Cap for balance
+            
+            # Learning style: Expand for realism (e.g., Visual for Design, Analytical for Math/Science)
+            learning_style_score = 0.1
+            if learning_style == 'Analytical Thinker' and any(word in course for word in ['Mathematics', 'Physics', 'Statistics', 'Geophysics']):
+                learning_style_score = 0.3
+            elif learning_style == 'Practical Learner' and 'Engineering' in course:
+                learning_style_score = 0.3
+            elif learning_style == 'Visual Learner' and any(word in course for word in ['Architecture', 'Design', 'Urban']):
+                learning_style_score = 0.3
+            elif learning_style == 'Conceptual Learner' and any(word in course for word in ['Science', 'Biology', 'Chemistry']):
+                learning_style_score = 0.3
+            elif learning_style == 'Social Learner' and any(word in course for word in ['Communication', 'Management', 'Economics']):
+                learning_style_score = 0.3
+            
+            # Diversity: Real-life catchment area bonus (first 5 states as example)
             diversity_score = 0.1 if state in NIGERIAN_STATES[:5] else 0.05
+            
+            # O-level pass rate (normalized 0-1)
             olevel_pass_rate = np.mean([olevel_subjects[subj] for subj in olevel_subjects]) / 6
+            
             eligible_courses.append({
                 'course': course,
                 'interest_score': interest_score,
@@ -501,42 +499,43 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
         }
 
     eligible_df = pd.DataFrame(eligible_courses)
-    features = pd.DataFrame({
-        'utme_score': [utme_score / 400] * len(eligible_df),
-        'olevel_avg': [eligible_df['olevel_pass_rate'].mean()] * len(eligible_df),
-        'interest_match': eligible_df['interest_score'],
-        'learning_style_score': eligible_df['learning_style_score'],
-        'diversity_score': eligible_df['diversity_score']
-    })
-
-    probs = model.predict_proba(features)
-    predicted_indices = np.argmax(probs, axis=1)
-    predicted_courses = label_encoder.inverse_transform(predicted_indices)
-    scores = probs[np.arange(len(probs)), predicted_indices]
-
-    eligible_df['score'] = scores
-    eligible_df['predicted_course'] = predicted_courses
-    eligible_df = eligible_df[eligible_df['predicted_course'] != 'UNASSIGNED']
+    
+    # Normalized UTME (0-1)
+    utme_norm = utme_score / 400.0
+    
+    # Composite score: Weighted sum (emphasize interest and learning style for "intelligence")
+    eligible_df['total_score'] = (
+        0.3 * eligible_df['interest_score'] +  # 30% weight on interests
+        0.25 * eligible_df['learning_style_score'] +  # 25% on learning fit
+        0.15 * eligible_df['diversity_score'] +  # 15% on diversity
+        0.15 * eligible_df['olevel_pass_rate'] +  # 15% on O-level
+        0.15 * utme_norm  # 15% on UTME
+    )
+    
+    # Bonus for preferred course (real-life priority)
+    eligible_df.loc[eligible_df['course'] == preferred_course, 'total_score'] += 0.1
+    
+    # Sort by total_score descending
+    eligible_df = eligible_df.sort_values(by='total_score', ascending=False)
     
     if eligible_df.empty:
         return {
             'predicted_program': 'UNASSIGNED',
-            'reason': 'No eligible courses predicted by the model.',
-            'suggestions': ['Improve UTME score', 'Ensure required O-level and UTME subjects are met'],
+            'reason': 'No eligible courses after scoring.',
+            'suggestions': ['Improve scores or adjust interests/subjects'],
             'all_eligible': pd.DataFrame(),
             'score': 0,
             'interest_alignment': False,
             'failure_reasons': failure_reasons
         }
 
-    eligible_df = eligible_df.sort_values(by='score', ascending=False)
     top_course = eligible_df.iloc[0]['course']
-    top_score = eligible_df.iloc[0]['score']
+    top_score = eligible_df.iloc[0]['total_score']
     interest_alignment = eligible_df.iloc[0]['interest_score'] > 0.1
 
     return {
         'predicted_program': top_course,
-        'reason': f"Eligible for {top_course} based on ML prediction and eligibility criteria.",
+        'reason': f"Eligible for {top_course} based on best fit to your scores, interests, and learning style.",
         'all_eligible': eligible_df,
         'score': top_score,
         'interest_alignment': interest_alignment,
@@ -547,7 +546,6 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
 jamb_data = load_jamb_data()
 neco_data = load_neco_data()
 course_capacities = {course: max(50, int(jamb_data[jamb_data['course'] == course]['total_2017'].sum() / 10)) for course in course_names}
-ELIGIBILITY_MODEL, LABEL_ENCODER = train_eligibility_model()
 
 async def main():
     st.set_page_config(page_title="FUTA Intelligent Admission Management System", layout="wide")
@@ -645,8 +643,7 @@ async def main():
                             learning_style,
                             state,
                             gender,
-                            ELIGIBILITY_MODEL,
-                            LABEL_ENCODER
+                            preferred_course
                         )
                         if prediction['predicted_program'] == "UNASSIGNED":
                             st.error(prediction['reason'])
@@ -667,11 +664,11 @@ async def main():
                             if not prediction['all_eligible'].empty:
                                 st.subheader("Other Eligible Courses")
                                 st.dataframe(
-                                    prediction['all_eligible'][['course', 'score', 'interest_score', 'learning_style_score']],
+                                    prediction['all_eligible'][['course', 'total_score', 'interest_score', 'learning_style_score']],
                                     use_container_width=True,
                                     column_config={
                                         "course": "Course",
-                                        "score": st.column_config.NumberColumn("Score", format="%.2f"),
+                                        "total_score": st.column_config.NumberColumn("Score", format="%.2f"),
                                         "interest_score": st.column_config.NumberColumn("Interest Score", format="%.2f"),
                                         "learning_style_score": st.column_config.NumberColumn("Learning Style Score", format="%.2f")
                                     }
@@ -778,8 +775,7 @@ async def main():
                     learning_style,
                     state,
                     gender,
-                    ELIGIBILITY_MODEL,
-                    LABEL_ENCODER
+                    preferred_course
                 )
 
                 status = "Admitted" if prediction['predicted_program'] != "UNASSIGNED" else "Not Admitted"
@@ -798,7 +794,7 @@ async def main():
                     "rank": prediction['all_eligible'].index[prediction['all_eligible']['course'] == prediction['predicted_program']].tolist()[0] + 1 if status == "Admitted" else 0,
                     "reason": reason,
                     "original_preference": preferred_course,
-                    "recommendation_reason": "Best match based on ML prediction" if status == "Admitted" else "N/A",
+                    "recommendation_reason": "Best match based on rule-based scoring" if status == "Admitted" else "N/A",
                     "available_alternatives": alternatives,
                     "suggested_alternatives": suggested_alternatives
                 })
@@ -809,7 +805,7 @@ async def main():
                             "student_id": student_id,
                             "name": name,
                             "course": eligible_row['course'],
-                            "score": eligible_row['score'],
+                            "score": eligible_row['total_score'],
                             "interest_score": eligible_row['interest_score'],
                             "learning_style_score": eligible_row['learning_style_score'],
                             "diversity_score": eligible_row['diversity_score'],
@@ -1305,48 +1301,47 @@ async def main():
                 )
             else:
                 st.warning("No optimization data available.")
+        with tab4:
+            st.header("Help & FAQ")
+            st.markdown("""
+            ### Frequently Asked Questions
+            **Q: What is this system?**
+            A: This is an ML-based admission prediction system for FUTA, using JAMB 2017-2018 and NECO 2016 data to predict eligibility and placement for 47 courses.
 
-    with tab4:
-        st.header("Help & FAQ")
-        st.markdown("""
-        ### Frequently Asked Questions
-        **Q: What is this system?**
-        A: This is an ML-based admission prediction system for FUTA, using JAMB 2017-2018 and NECO 2016 data to predict eligibility and placement for 47 courses.
+            **Q: How do I use the Individual Admission tab?**
+            A: Enter your details, including UTME score, subjects (must include English Language), O'Level grades (at least 5 subjects), interests, and learning style. Submit to get a prediction and download an admission letter if eligible.
 
-        **Q: How do I use the Individual Admission tab?**
-        A: Enter your details, including UTME score, subjects (must include English Language), O'Level grades (at least 5 subjects), interests, and learning style. Submit to get a prediction and download an admission letter if eligible.
+            **Q: What format should the CSV file have for batch processing?**
+            A: The CSV must include the following columns:
+            - `student_id`: Unique identifier
+            - `name`: Full name
+            - `utme_score`: UTME score (0-400)
+            - `preferred_course`: Chosen course (must match one of the 47 FUTA courses)
+            - `utme_subjects`: Comma-separated list of 4 subjects (including English Language)
+            - `interests`: Comma-separated list of interests
+            - `learning_style`: One of Analytical Thinker, Visual Learner, Practical Learner, Conceptual Learner, Social Learner
+            - `state_of_origin`: One of the 37 Nigerian states
+            - `gender`: Male or Female
+            - Subject grades (e.g., `english_language_grade`, `mathematics_grade`) with values A1, B2, B3, C4, C5, or C6
 
-        **Q: What format should the CSV file have for batch processing?**
-        A: The CSV must include the following columns:
-        - `student_id`: Unique identifier
-        - `name`: Full name
-        - `utme_score`: UTME score (0-400)
-        - `preferred_course`: Chosen course (must match one of the 47 FUTA courses)
-        - `utme_subjects`: Comma-separated list of 4 subjects (including English Language)
-        - `interests`: Comma-separated list of interests
-        - `learning_style`: One of Analytical Thinker, Visual Learner, Practical Learner, Conceptual Learner, Social Learner
-        - `state_of_origin`: One of the 37 Nigerian states
-        - `gender`: Male or Female
-        - Subject grades (e.g., `english_language_grade`, `mathematics_grade`) with values A1, B2, B3, C4, C5, or C6
+            **Sample CSV:**
+            ```csv
+            student_id,name,utme_score,preferred_course,utme_subjects,interests,learning_style,state_of_origin,gender,english_language_grade,mathematics_grade,physics_grade,chemistry_grade,biology_grade
+            001,John Doe,250,Biochemistry,English Language,Physics,Chemistry,Biology,Health Sciences,Analytical Thinker,Lagos,Male,A1,B3,C4,C4,C5
+            ```
 
-        **Sample CSV:**
-        ```csv
-        student_id,name,utme_score,preferred_course,utme_subjects,interests,learning_style,state_of_origin,gender,english_language_grade,mathematics_grade,physics_grade,chemistry_grade,biology_grade
-        001,John Doe,250,Biochemistry,English Language,Physics,Chemistry,Biology,Health Sciences,Analytical Thinker,Lagos,Male,A1,B3,C4,C4,C5
-        ```
+            **Q: How are predictions made?**
+            A: The system uses a Random Forest model trained on synthetic data, combined with rule-based eligibility checks, considering UTME scores, O'Level grades, interests, learning styles, and diversity factors.
 
-        **Q: How are predictions made?**
-        A: The system uses a Random Forest model trained on synthetic data, combined with rule-based eligibility checks, considering UTME scores, O'Level grades, interests, learning styles, and diversity factors.
+            **Q: What if I encounter an error?**
+            A: Check the error message for details. For batch processing, download the invalid rows report to identify issues. Ensure all required fields are correctly formatted, including English Language in UTME subjects.
 
-        **Q: What if I encounter an error?**
-        A: Check the error message for details. For batch processing, download the invalid rows report to identify issues. Ensure all required fields are correctly formatted, including English Language in UTME subjects.
+            **Q: Can I reset the form?**
+            A: Yes, use the 'Reset Form' button in the Individual Admission tab to clear inputs and start over.
 
-        **Q: Can I reset the form?**
-        A: Yes, use the 'Reset Form' button in the Individual Admission tab to clear inputs and start over.
-
-        **Q: How are course capacities determined?**
-        A: Capacities are dynamically calculated based on JAMB faculty demand, with a minimum of 50 slots per course, adjusted by faculty admission proportions.
-        """)
+            **Q: How are course capacities determined?**
+            A: Capacities are dynamically calculated based on JAMB faculty demand, with a minimum of 50 slots per course, adjusted by faculty admission proportions.
+            """)
 
 async def main_async():
     await main()
