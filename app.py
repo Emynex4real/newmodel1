@@ -19,18 +19,18 @@ logger = logging.getLogger(__name__)
 
 # Constants
 course_names = [
-    "Computer Science", "Mechanical Engineering", "Electrical Engineering", "Civil Engineering",
-    "Chemical Engineering", "Biochemistry", "Microbiology", "Industrial Chemistry",
-    "Physics", "Mathematics", "Statistics", "Geology", "Meteorology",
-    "Agricultural Economics", "Animal Production", "Crop Production", "Food Science",
-    "Forestry", "Fisheries", "Architecture", "Estate Management", "Quantity Surveying",
-    "Urban Planning", "Industrial Design", "Information Technology", "Cyber Security",
-    "Software Engineering", "Biomedical Technology", "Marine Science", "Petroleum Engineering",
-    "Metallurgical Engineering", "Mining Engineering", "Surveying", "Applied Geophysics",
-    "Applied Geology", "Agricultural Engineering", "Environmental Management",
-    "Project Management", "Transport Management", "Accounting Technology",
-    "Entrepreneurship", "Banking and Finance", "Business Administration", "Economics",
-    "Building Technology", "Remote Sensing", "Bioinformatics", "Biotechnology", "Data Science"
+    "Agric Extension & Communication Technology", "Agricultural Engineering", "Agriculture Resources Economics",
+    "Animal Production & Health Services", "Applied Biology", "Applied Geophysics", "Architecture",
+    "Biochemistry", "Biology", "Biomedical Technology", "Biotechnology", "Building", "Civil Engineering",
+    "Computer Engineering", "Computer Science", "Crop Soil & Pest Management", "Cyber Security",
+    "Ecotourism & Wildlife Management", "Electrical/Electronics Engineering", "Estate Management",
+    "Fisheries & Aquaculture", "Food Science & Technology", "Forestry & Wood Technology", "Human Anatomy",
+    "Industrial & Production Engineering", "Industrial Chemistry", "Industrial Design", "Industrial Mathematics",
+    "Information & Communication Technology", "Information Systems", "Information Technology",
+    "Marine Science & Technology", "Mathematics", "Mechanical Engineering", "Medical Laboratory Science",
+    "Metallurgical & Materials Engineering", "Meteorology", "Microbiology", "Mining Engineering", "Physics",
+    "Physiology", "Quantity Surveying", "Integrates & Geoscience Information System", "Software Engineering",
+    "Statistics", "Surveying & Geoinformatics", "Urban & Regional Planning"
 ]
 
 NIGERIAN_STATES = [
@@ -47,9 +47,16 @@ grade_map = {"A1": 6, "B2": 5, "B3": 4, "C4": 3, "C5": 2, "C6": 1}
 
 # Available O'Level subjects
 olevel_subjects_options = [
-    "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
-    "Economics", "Geography", "Agricultural Science", "Technical Drawing",
-    "Further Mathematics", "Government", "Literature in English"
+    "English Language", "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Geography",
+    "Agricultural Science", "Technical Drawing", "Further Mathematics", "Government", "Literature in English",
+    "Fine Art", "Introduction to Agricultural Science", "Materials and Workshop Process and Machining",
+    "Tractor Layout Power Unit Under Carriage and Auto Electricity", "Statistics", "Basic Electricity",
+    "Spinning", "Weaving", "Surface Design and Printing", "Introduction to Building Construction",
+    "Bricklaying/Block laying", "Concreting", "Wall, Floors and Ceiling Finishing", "Joinery", "Carpentry",
+    "Decorative Painting", "Lining, Sign and Design", "Wall Hanging", "Colour Mixing/Matching and Glazing",
+    "Ceramics", "Graphics Design", "Graphic Printing", "Basic Catering and Food Services",
+    "Bakery and Confectionaries", "Hotel & Catering Crafty course (Cookery)",
+    "Hotel & Catering Craft Course (Food/Drinks Services)"
 ]
 
 # Initialize session state
@@ -68,12 +75,21 @@ def load_jamb_data():
     return pd.DataFrame({
         'course': course_names,
         'faculty': (
-            ['Engineering'] * 6 +  # Computer Science to Chemical Engineering, Agricultural Engineering
-            ['Science'] * 12 +     # Biochemistry to Meteorology, Bioinformatics, Biotechnology, Data Science
-            ['Agriculture'] * 6 +  # Agricultural Economics to Fisheries
-            ['Environmental Sciences'] * 11 +  # Architecture to Industrial Design, Surveying to Applied Geology, Building Technology, Remote Sensing
-            ['Technology'] * 7 +   # Information Technology to Metallurgical Engineering
-            ['Management Sciences'] * 7  # Project Management to Economics
+            ['Agriculture'] * 4 +  # Agric Extension to Animal Production
+            ['Science'] * 7 +      # Applied Biology to Biotechnology
+            ['Environmental Sciences'] * 3 +  # Architecture, Building, Estate Management
+            ['Engineering'] * 4 +  # Civil Engineering to Computer Science
+            ['Agriculture'] * 2 +  # Crop Soil & Pest Management, Fisheries & Aquaculture
+            ['Technology'] * 3 +   # Cyber Security to Information Technology
+            ['Agriculture'] * 2 +  # Ecotourism & Wildlife Management, Forestry & Wood Technology
+            ['Science'] * 2 +      # Human Anatomy, Medical Laboratory Science
+            ['Engineering'] * 3 +  # Industrial & Production to Mechanical Engineering
+            ['Science'] * 4 +      # Industrial Chemistry to Microbiology
+            ['Engineering'] * 2 +  # Mining Engineering, Metallurgical & Materials Engineering
+            ['Science'] * 2 +      # Physics, Physiology
+            ['Environmental Sciences'] * 3 +  # Quantity Surveying to Urban & Regional Planning
+            ['Technology'] * 1 +   # Software Engineering
+            ['Science'] * 1        # Statistics
         ),
         'total_2017': np.random.randint(100, 1000, size=len(course_names)),
         'total_2018': np.random.randint(100, 1000, size=len(course_names))
@@ -87,27 +103,290 @@ def load_neco_data():
     })
 
 def get_course_requirements():
-    requirements = {}
-    for course in course_names:
-        faculty = 'Engineering' if course in course_names[:5] or course == course_names[35] else \
-                 'Science' if course in course_names[5:13] or course in course_names[46:49] else \
-                 'Agriculture' if course in course_names[13:19] else \
-                 'Environmental Sciences' if course in course_names[19:25] or course in course_names[32:35] or course in course_names[44:46] else \
-                 'Technology' if course in course_names[25:32] else \
-                 'Management Sciences' if course in course_names[37:44] else \
-                 'Unknown'  # Fallback, should not occur
-        required_subjects = ["English Language", "Mathematics", "Physics", "Chemistry"] if 'Engineering' in faculty or 'Science' in faculty else \
-                           ["English Language", "Mathematics", "Biology", "Agricultural Science"] if 'Agriculture' in faculty else \
-                           ["English Language", "Mathematics", "Economics", "Geography"] if 'Management Sciences' in faculty else \
-                           ["English Language", "Mathematics", "Geography", "Technical Drawing"]
-        min_utme = 180 if 'Science' in faculty else 200
-        min_olevel = {'English Language': 'C6', 'Mathematics': 'C6'}
-        requirements[course] = {
-            'faculty': faculty,
-            'required_subjects': required_subjects,
-            'min_utme': min_utme,
-            'min_olevel': min_olevel
+    requirements = {
+        "Agric Extension & Communication Technology": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Chemistry", "Biology/Agricultural Science", "Physics/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Chemistry": "C6", "Mathematics": "C6", "Biology/Agricultural Science": "C6"}
+        },
+        "Agricultural Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Mathematics", "Chemistry", "Physics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Agriculture Resources Economics": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Chemistry", "Biology/Agricultural Science", "Physics/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Chemistry": "C6", "Mathematics": "C6", "Biology": "C6"}
+        },
+        "Animal Production & Health Services": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Chemistry", "Biology/Agricultural Science", "Physics/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Chemistry": "C6", "Mathematics": "C6", "Biology/Agricultural Science": "C6"}
+        },
+        "Applied Biology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Chemistry/Physics/Mathematics/Biology/Geography"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Biology": "C6", "Chemistry": "C6", "Mathematics": "C6"}
+        },
+        "Applied Geophysics": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Physics/Chemistry/Biology/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Architecture": {
+            "faculty": "Environmental Sciences",
+            "required_subjects": ["English Language", "Physics", "Mathematics", "Chemistry/Geography/Art/Biology/Economics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Biochemistry": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Biology", "Chemistry", "Physics/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Chemistry": "C6", "Mathematics": "C6", "Physics": "C6", "Biology": "C6"}
+        },
+        "Biology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Biology", "Chemistry", "Physics/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Biology": "C6", "Chemistry": "C6", "Mathematics/Physics": "C6"}
+        },
+        "Biomedical Technology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Physics", "Chemistry", "Biology"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6", "Biology": "C6"}
+        },
+        "Biotechnology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Biology", "Chemistry", "Any Science"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Biology": "C6", "Chemistry": "C6", "Physics": "C6"}
+        },
+        "Building": {
+            "faculty": "Environmental Sciences",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Chemistry"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Civil Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Physics", "Chemistry", "Mathematics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Computer Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Chemistry"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Further Mathematics": "C6", "Chemistry": "C6", "Physics": "C6"}
+        },
+        "Computer Science": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Biology/Chemistry/Agric Science/Economics/Geography"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Crop Soil & Pest Management": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Chemistry", "Biology/Agricultural Science", "Mathematics/Physics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Chemistry": "C6", "Biology/Agricultural Science": "C6", "Mathematics": "C6"}
+        },
+        "Cyber Security": {
+            "faculty": "Technology",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Biology/Chemistry/Agric Science/Economics/Geography"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Ecotourism & Wildlife Management": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Biology/Agricultural Science", "Chemistry/Geography/Economics/Mathematics/Physics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Biology/Agricultural Science": "C6"}
+        },
+        "Electrical/Electronics Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Chemistry"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Estate Management": {
+            "faculty": "Environmental Sciences",
+            "required_subjects": ["English Language", "Mathematics", "Economics", "Any Subject"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Chemistry": "C6"}
+        },
+        "Fisheries & Aquaculture": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Chemistry", "Biology/Agricultural Science", "Mathematics/Physics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Chemistry": "C6", "Biology/Agricultural Science": "C6", "Mathematics": "C6"}
+        },
+        "Food Science & Technology": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Chemistry", "Mathematics/Physics", "Biology/Agricultural Science"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Chemistry": "C6", "Biology/Agricultural Science": "C6"}
+        },
+        "Forestry & Wood Technology": {
+            "faculty": "Agriculture",
+            "required_subjects": ["English Language", "Chemistry", "Biology/Agricultural Science", "Mathematics/Physics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Chemistry": "C6", "Biology/Agricultural Science": "C6", "Mathematics": "C6"}
+        },
+        "Human Anatomy": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Biology", "Chemistry", "Physics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Biology": "C6", "Chemistry": "C6", "Physics": "C6"}
+        },
+        "Industrial & Production Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Chemistry"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Industrial Chemistry": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Chemistry", "Mathematics", "Physics/Biology/Agricultural Science"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Chemistry": "C6", "Physics": "C6", "Biology/Agricultural Science": "C6"}
+        },
+        "Industrial Design": {
+            "faculty": "Technology",
+            "required_subjects": ["English Language", "Chemistry", "Mathematics", "Fine Arts/Physics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Chemistry": "C6", "Fine Art": "C6"}
+        },
+        "Industrial Mathematics": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Mathematics", "Physics/Chemistry/Economics/Biology/Agricultural Science"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Information & Communication Technology": {
+            "faculty": "Technology",
+            "required_subjects": ["English Language", "Mathematics", "Economics", "Account/Commerce/Government"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Economics": "C6", "Mathematics": "C6"}
+        },
+        "Information Systems": {
+            "faculty": "Technology",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Biology/Chemistry/Agric Science/Economics/Geography"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Information Technology": {
+            "faculty": "Technology",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Biology/Chemistry/Agric Science/Economics/Geography"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Marine Science & Technology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Biology", "Physics/Chemistry/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Biology": "C6"}
+        },
+        "Mathematics": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Mathematics", "Physics/Chemistry/Economics/Geography"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics/Chemistry": "C6"}
+        },
+        "Mechanical Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Chemistry"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Medical Laboratory Science": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Biology", "Chemistry", "Physics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Chemistry": "C6", "Biology": "C6", "Physics": "C6"}
+        },
+        "Metallurgical & Materials Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Physics", "Chemistry", "Mathematics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Meteorology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Chemistry/Geography"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Microbiology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Biology", "Chemistry", "Physics/Mathematics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Chemistry": "C6", "Biology": "C6", "Physics": "C6"}
+        },
+        "Mining Engineering": {
+            "faculty": "Engineering",
+            "required_subjects": ["English Language", "Chemistry", "Mathematics", "Physics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Physics": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Physics", "Mathematics", "Chemistry/Biology"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Physics": "C6", "Chemistry": "C6", "Mathematics": "C6"}
+        },
+        "Physiology": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Physics", "Chemistry", "Biology"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6", "Biology": "C6"}
+        },
+        "Quantity Surveying": {
+            "faculty": "Environmental Sciences",
+            "required_subjects": ["English Language", "Physics", "Mathematics", "Chemistry/Geography/Art/Biology/Economics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Integrates & Geoscience Information System": {
+            "faculty": "Environmental Sciences",
+            "required_subjects": ["English Language", "Physics", "Mathematics", "Chemistry/Geography/Art/Biology/Economics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Software Engineering": {
+            "faculty": "Technology",
+            "required_subjects": ["English Language", "Mathematics", "Physics", "Biology/Chemistry/Agric Science/Economics/Geography"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Statistics": {
+            "faculty": "Science",
+            "required_subjects": ["English Language", "Mathematics", "Physics/Chemistry/Economics"],
+            "min_utme": 180,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"}
+        },
+        "Surveying & Geoinformatics": {
+            "faculty": "Environmental Sciences",
+            "required_subjects": ["English Language", "Physics", "Mathematics", "Chemistry/Geography/Art/Biology/Economics"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"}
+        },
+        "Urban & Regional Planning": {
+            "faculty": "Environmental Sciences",
+            "required_subjects": ["English Language", "Mathematics", "Geography", "Economics/Physics/Chemistry"],
+            "min_utme": 200,
+            "min_olevel": {"English Language": "C6", "Mathematics": "C6", "Geography": "C6"}
         }
+    }
     return requirements
 
 def generate_admission_letter(student_data):
@@ -158,17 +437,43 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
     for course in course_names:
         req = requirements[course]
         meets_utme = utme_score >= req['min_utme']
-        meets_subjects = all(subj in utme_subjects for subj in req['required_subjects'])
-        meets_olevel = all(subject in olevel_subjects and olevel_subjects[subject] >= grade_map.get(req['min_olevel'].get(subject, 'C6'), 1) 
-                          for subject in req['min_olevel'])
+        
+        # Handle flexible subject requirements (e.g., "Physics/Mathematics" or "Any Science")
+        meets_subjects = True
+        for subj in req['required_subjects']:
+            if '/' in subj:
+                options = subj.split('/')
+                if not any(opt in utme_subjects for opt in options):
+                    meets_subjects = False
+                    break
+            elif subj in ["Any Science", "Any Subject"]:
+                non_english_subjects = [s for s in utme_subjects if s != "English Language"]
+                if len(non_english_subjects) < 3:  # Ensure at least 3 non-English subjects
+                    meets_subjects = False
+                    break
+            elif subj not in utme_subjects:
+                meets_subjects = False
+                break
+        
+        # Handle O'Level requirements with alternatives (e.g., Biology/Agricultural Science)
+        meets_olevel = True
+        for subject, min_grade in req['min_olevel'].items():
+            if '/' in subject:
+                options = subject.split('/')
+                if not any(opt in olevel_subjects and olevel_subjects[opt] >= grade_map[min_grade] for opt in options):
+                    meets_olevel = False
+                    break
+            elif subject not in olevel_subjects or olevel_subjects[subject] < grade_map[min_grade]:
+                meets_olevel = False
+                break
         
         if not meets_utme:
             failure_reasons.append(f"{course}: UTME score {utme_score} below required {req['min_utme']}")
         if not meets_subjects:
-            missing_subjects = [subj for subj in req['required_subjects'] if subj not in utme_subjects]
+            missing_subjects = [subj for subj in req['required_subjects'] if '/' not in subj and subj not in utme_subjects and subj not in ["Any Science", "Any Subject"]]
             failure_reasons.append(f"{course}: Missing UTME subjects: {', '.join(missing_subjects)}")
         if not meets_olevel:
-            missing_olevel = [subject for subject in req['min_olevel'] if subject not in olevel_subjects or olevel_subjects[subject] < grade_map.get(req['min_olevel'].get(subject, 'C6'), 1)]
+            missing_olevel = [subject for subject, grade in req['min_olevel'].items() if subject not in olevel_subjects or olevel_subjects[subject] < grade_map[grade]]
             failure_reasons.append(f"{course}: O'Level requirements not met for: {', '.join(missing_olevel)}")
         
         if meets_utme and meets_subjects and meets_olevel:
@@ -188,7 +493,7 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
         return {
             'predicted_program': 'UNASSIGNED',
             'reason': 'No eligible courses found based on your scores and subjects.',
-            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met', 'Include Mathematics in UTME subjects'],
+            'suggestions': ['Improve UTME score', 'Ensure required O-level and UTME subjects are met'],
             'all_eligible': pd.DataFrame(),
             'score': 0,
             'interest_alignment': False,
@@ -217,7 +522,7 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
         return {
             'predicted_program': 'UNASSIGNED',
             'reason': 'No eligible courses predicted by the model.',
-            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met', 'Include Mathematics in UTME subjects'],
+            'suggestions': ['Improve UTME score', 'Ensure required O-level and UTME subjects are met'],
             'all_eligible': pd.DataFrame(),
             'score': 0,
             'interest_alignment': False,
@@ -259,7 +564,7 @@ async def main():
     with tab1:
         st.header("Individual Admission Prediction")
         st.markdown("Enter your details to predict your admission eligibility and course placement.")
-        st.warning("Select at least 5 O'Level subjects with grades A1 to C6. UTME subjects must include English Language and Mathematics.")
+        st.warning("Select at least 5 O'Level subjects with grades A1 to C6. UTME subjects must include English Language.")
         
         with st.form(key=f"admission_form_{st.session_state.form_key_counter}"):
             col1, col2 = st.columns(2)
@@ -273,13 +578,15 @@ async def main():
             
             with col2:
                 utme_subjects = st.multiselect(
-                    "UTME Subjects (Select exactly 4, including English Language and Mathematics)",
-                    options=["English Language", "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Geography", "Agricultural Science"],
-                    default=["English Language", "Mathematics"]
+                    "UTME Subjects (Select exactly 4, including English Language)",
+                    options=["English Language", "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Geography",
+                             "Agricultural Science", "Fine Art", "Account", "Commerce", "Government"],
+                    default=["English Language"]
                 )
                 interests = st.multiselect(
                     "Interests (Select up to 3)",
-                    options=["Technology & Innovation", "Engineering & Design", "Environmental Sciences", "Business & Management", "Health Sciences", "Agriculture & Food Security"],
+                    options=["Technology & Innovation", "Engineering & Design", "Environmental Sciences", 
+                             "Business & Management", "Health Sciences", "Agriculture & Food Security"],
                     max_selections=3
                 )
                 learning_style = st.selectbox("Learning Style", options=learning_styles)
@@ -323,11 +630,9 @@ async def main():
                 elif utme_score <= 0:
                     st.error("Please enter a valid UTME score greater than 0.")
                 elif not utme_subjects or len(utme_subjects) != 4:
-                    st.error("Please select exactly 4 UTME subjects, including English Language and Mathematics.")
+                    st.error("Please select exactly 4 UTME subjects, including English Language.")
                 elif "English Language" not in utme_subjects:
                     st.error("English Language is a mandatory UTME subject.")
-                elif "Mathematics" not in utme_subjects:
-                    st.error("Mathematics is a mandatory UTME subject.")
                 elif not olevel_subjects or len(olevel_subjects) < 5:
                     st.error("Please select at least 5 O'Level subjects with valid grades.")
                 else:
@@ -446,8 +751,8 @@ async def main():
                 if utme_score <= 0 or utme_score > 400:
                     invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid UTME score"})
                     continue
-                if len(utme_subjects) != 4 or "English Language" not in utme_subjects or "Mathematics" not in utme_subjects:
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language and Mathematics"})
+                if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
                     continue
                 if len(olevel_subjects) < 5:
                     invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have at least 5 O'Level subjects"})
@@ -868,7 +1173,6 @@ async def main():
         else:
             st.warning("No NECO data available for visualization.")
         
-        # Heatmap for Course Demand by Faculty
         st.subheader("Course Demand by Faculty (Heatmap)")
         demand_df = pd.DataFrame([
             {
@@ -904,7 +1208,6 @@ async def main():
         else:
             st.warning("No demand data available for visualization.")
         
-        # Line Plot for Admission Scores
         st.subheader("Admission Scores by Course (Line)")
         if admission_results:
             course_scores = pd.DataFrame([
@@ -940,7 +1243,6 @@ async def main():
         else:
             st.warning("No admission results available. Process batch applications in Tab 2 to generate data.")
         
-        # Capacity Utilization
         st.subheader("Faculty Capacity Utilization")
         if admission_results:
             utilization_df = pd.DataFrame([
@@ -980,7 +1282,6 @@ async def main():
         else:
             st.warning("No admission results available for visualization.")
         
-        # Capacity Optimization Suggestions (in an expander for cleaner layout)
         with st.expander("Capacity Optimization Suggestions", expanded=False):
             st.markdown("Recommendations for adjusting course capacities based on demand.")
             optimization_df = pd.DataFrame([
@@ -1010,18 +1311,18 @@ async def main():
         st.markdown("""
         ### Frequently Asked Questions
         **Q: What is this system?**
-        A: This is an ML-based admission prediction system for FUTA, using JAMB 2017-2018 and NECO 2016 data to predict eligibility and placement for 49 courses.
+        A: This is an ML-based admission prediction system for FUTA, using JAMB 2017-2018 and NECO 2016 data to predict eligibility and placement for 47 courses.
 
         **Q: How do I use the Individual Admission tab?**
-        A: Enter your details, including UTME score, subjects (must include English Language and Mathematics), O'Level grades (at least 5 subjects), interests, and learning style. Submit to get a prediction and download an admission letter if eligible.
+        A: Enter your details, including UTME score, subjects (must include English Language), O'Level grades (at least 5 subjects), interests, and learning style. Submit to get a prediction and download an admission letter if eligible.
 
         **Q: What format should the CSV file have for batch processing?**
         A: The CSV must include the following columns:
         - `student_id`: Unique identifier
         - `name`: Full name
         - `utme_score`: UTME score (0-400)
-        - `preferred_course`: Chosen course (must match one of the 49 FUTA courses)
-        - `utme_subjects`: Comma-separated list of 4 subjects (including English Language and Mathematics)
+        - `preferred_course`: Chosen course (must match one of the 47 FUTA courses)
+        - `utme_subjects`: Comma-separated list of 4 subjects (including English Language)
         - `interests`: Comma-separated list of interests
         - `learning_style`: One of Analytical Thinker, Visual Learner, Practical Learner, Conceptual Learner, Social Learner
         - `state_of_origin`: One of the 37 Nigerian states
@@ -1031,14 +1332,14 @@ async def main():
         **Sample CSV:**
         ```csv
         student_id,name,utme_score,preferred_course,utme_subjects,interests,learning_style,state_of_origin,gender,english_language_grade,mathematics_grade,physics_grade,chemistry_grade,biology_grade
-        001,John Doe,220,Computer Science,English Language,Mathematics,Physics,Chemistry,Technology & Innovation,Analytical Thinker,Lagos,Male,B2,B3,C4,C5,C6
+        001,John Doe,250,Biochemistry,English Language,Physics,Chemistry,Biology,Health Sciences,Analytical Thinker,Lagos,Male,A1,B3,C4,C4,C5
         ```
 
         **Q: How are predictions made?**
         A: The system uses a Random Forest model trained on synthetic data, combined with rule-based eligibility checks, considering UTME scores, O'Level grades, interests, learning styles, and diversity factors.
 
         **Q: What if I encounter an error?**
-        A: Check the error message for details. For batch processing, download the invalid rows report to identify issues. Ensure all required fields are correctly formatted, including Mathematics in UTME subjects.
+        A: Check the error message for details. For batch processing, download the invalid rows report to identify issues. Ensure all required fields are correctly formatted, including English Language in UTME subjects.
 
         **Q: Can I reset the form?**
         A: Yes, use the 'Reset Form' button in the Individual Admission tab to clear inputs and start over.
