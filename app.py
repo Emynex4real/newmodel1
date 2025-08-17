@@ -10,6 +10,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 import io
 import plotly.express as px
+import plotly.graph_objects as go
 import asyncio
 
 # Set up logging
@@ -753,43 +754,193 @@ async def main():
 
     with tab3:
         st.header("Analytics & Insights")
-        st.markdown("Visualize admission trends and insights based on JAMB and NECO data.")
+        st.markdown("Explore admission trends, course demand, and capacity utilization with interactive visualizations.")
         
         admission_results = st.session_state.batch_results or []
         demand = analyze_student_demand(pd.DataFrame(), jamb_data, neco_data)
         capacity_optimization = optimize_course_capacities(demand, course_capacities)
         capacity_utilization = calculate_capacity_utilization(admission_results, course_capacities)
         
-        st.subheader("Admission Trends by Faculty")
-        if admission_results:
-            faculty_counts = pd.DataFrame([
-                {
-                    'Faculty': get_course_requirements()[course]['faculty'],
-                    'Admitted': sum(1 for r in admission_results if r['admitted_course'] == course)
-                } for course in course_names
-            ]).groupby('Faculty').sum().reset_index()
-            if not faculty_counts.empty:
-                fig = px.bar(faculty_counts, x='Faculty', y='Admitted', title="Admitted Students by Faculty")
-                st.plotly_chart(fig, use_container_width=True)
+        # Custom color scheme for consistency
+        color_scheme = px.colors.qualitative.Plotly
+        
+        # Layout: Two columns for charts
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Admitted Students by Faculty (Bar)")
+            if admission_results:
+                faculty_counts = pd.DataFrame([
+                    {
+                        'Faculty': get_course_requirements()[course]['faculty'],
+                        'Admitted': sum(1 for r in admission_results if r['admitted_course'] == course)
+                    } for course in course_names
+                ]).groupby('Faculty').sum().reset_index()
+                if not faculty_counts.empty:
+                    fig = px.bar(
+                        faculty_counts, 
+                        x='Faculty', 
+                        y='Admitted', 
+                        title="Admitted Students by Faculty",
+                        color='Faculty',
+                        color_discrete_sequence=color_scheme,
+                        text='Admitted'
+                    )
+                    fig.update_layout(
+                        xaxis_title="Faculty",
+                        yaxis_title="Number of Students Admitted",
+                        showlegend=False,
+                        title_x=0.5,
+                        margin=dict(t=50, b=50),
+                        hovermode="x unified"
+                    )
+                    fig.update_traces(
+                        textposition='auto',
+                        hovertemplate="%{x}<br>Admitted: %{y}<extra></extra>"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No faculty data available for visualization.")
             else:
-                st.warning("No faculty data available for visualization.")
-        else:
-            st.warning("No admission results available for visualization.")
+                st.warning("No admission results available. Process batch applications in Tab 2 to generate data.")
+        
+        with col2:
+            st.subheader("Faculty Admission Distribution (Pie)")
+            if admission_results:
+                faculty_counts = pd.DataFrame([
+                    {
+                        'Faculty': get_course_requirements()[course]['faculty'],
+                        'Admitted': sum(1 for r in admission_results if r['admitted_course'] == course)
+                    } for course in course_names
+                ]).groupby('Faculty').sum().reset_index()
+                if not faculty_counts.empty:
+                    fig = px.pie(
+                        faculty_counts, 
+                        names='Faculty', 
+                        values='Admitted', 
+                        title="Distribution of Admitted Students by Faculty",
+                        color_discrete_sequence=color_scheme
+                    )
+                    fig.update_traces(
+                        textinfo='percent+label',
+                        hovertemplate="%{label}<br>Admitted: %{value}<br>Percentage: %{percent}<extra></extra>"
+                    )
+                    fig.update_layout(
+                        title_x=0.5,
+                        margin=dict(t=50, b=50)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No faculty data available for visualization.")
+            else:
+                st.warning("No admission results available for visualization.")
         
         st.subheader("NECO Pass Rates by State and Gender")
-        neco_df = load_neco_data()
-        if not neco_df.empty:
-            neco_melted = neco_df.melt(id_vars=['state'], value_vars=['male_pass_rate', 'female_pass_rate'], 
-                                       var_name='Gender', value_name='Pass Rate')
+        if not neco_data.empty:
+            neco_melted = neco_data.melt(id_vars=['state'], value_vars=['male_pass_rate', 'female_pass_rate'], 
+                                        var_name='Gender', value_name='Pass Rate')
             neco_melted['Gender'] = neco_melted['Gender'].replace({'male_pass_rate': 'Male', 'female_pass_rate': 'Female'})
             if not neco_melted.empty:
-                fig = px.bar(neco_melted, x='state', y='Pass Rate', color='Gender', barmode='group', title="NECO Pass Rates by State and Gender")
+                fig = px.bar(
+                    neco_melted, 
+                    x='state', 
+                    y='Pass Rate', 
+                    color='Gender', 
+                    barmode='group', 
+                    title="NECO Pass Rates by State and Gender",
+                    color_discrete_sequence=color_scheme[:2]
+                )
+                fig.update_layout(
+                    xaxis_title="State",
+                    yaxis_title="Pass Rate (%)",
+                    xaxis_tickangle=45,
+                    title_x=0.5,
+                    margin=dict(t=50, b=100),
+                    legend_title="Gender",
+                    hovermode="x unified"
+                )
+                fig.update_traces(
+                    hovertemplate="%{x}<br>%{fullData.name}<br>Pass Rate: %{y:.2f}%<extra></extra>"
+                )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No NECO data available for visualization.")
         else:
             st.warning("No NECO data available for visualization.")
         
+        # Heatmap for Course Demand by Faculty
+        st.subheader("Course Demand by Faculty (Heatmap)")
+        demand_df = pd.DataFrame([
+            {
+                'Course': course,
+                'Faculty': get_course_requirements()[course]['faculty'],
+                'Demand Score': data['demand_score'] * 100  # Scale for visualization
+            } for course, data in demand.items()
+        ])
+        if not demand_df.empty:
+            demand_pivot = demand_df.pivot_table(
+                values='Demand Score', 
+                index='Faculty', 
+                columns='Course', 
+                aggfunc='sum', 
+                fill_value=0
+            )
+            fig = px.imshow(
+                demand_pivot,
+                title="Course Demand by Faculty",
+                color_continuous_scale='Viridis',
+                labels=dict(x="Course", y="Faculty", color="Demand Score (%)")
+            )
+            fig.update_layout(
+                xaxis_tickangle=45,
+                title_x=0.5,
+                margin=dict(t=50, b=100),
+                height=500
+            )
+            fig.update_traces(
+                hovertemplate="Faculty: %{y}<br>Course: %{x}<br>Demand Score: %{z:.2f}%<extra></extra>"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No demand data available for visualization.")
+        
+        # Line Plot for Admission Scores
+        st.subheader("Admission Scores by Course (Line)")
+        if admission_results:
+            course_scores = pd.DataFrame([
+                {
+                    'Course': r['admitted_course'],
+                    'Average Score': r['score']
+                } for r in admission_results if r['status'] == "Admitted"
+            ])
+            if not course_scores.empty:
+                course_scores = course_scores.groupby('Course').mean().reset_index()
+                fig = px.line(
+                    course_scores, 
+                    x='Course', 
+                    y='Average Score', 
+                    title="Average Admission Scores by Course",
+                    markers=True,
+                    color_discrete_sequence=color_scheme
+                )
+                fig.update_layout(
+                    xaxis_title="Course",
+                    yaxis_title="Average Prediction Score",
+                    xaxis_tickangle=45,
+                    title_x=0.5,
+                    margin=dict(t=50, b=100),
+                    hovermode="x unified"
+                )
+                fig.update_traces(
+                    hovertemplate="Course: %{x}<br>Average Score: %{y:.2f}<extra></extra>"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No admission scores available for visualization.")
+        else:
+            st.warning("No admission results available. Process batch applications in Tab 2 to generate data.")
+        
+        # Capacity Utilization
         st.subheader("Faculty Capacity Utilization")
         if admission_results:
             utilization_df = pd.DataFrame([
@@ -800,36 +951,59 @@ async def main():
                 } for course, data in capacity_utilization.items()
             ])
             if not utilization_df.empty:
-                fig = px.bar(utilization_df, x='Course', y='Utilization Rate', color='Status', 
-                             title="Course Capacity Utilization", color_discrete_map={'Optimal': 'green', 'Overcapacity': 'red'})
+                fig = px.bar(
+                    utilization_df, 
+                    x='Course', 
+                    y='Utilization Rate', 
+                    color='Status', 
+                    title="Course Capacity Utilization",
+                    color_discrete_map={'Optimal': '#00CC96', 'Overcapacity': '#EF553B'},
+                    text='Utilization Rate'
+                )
+                fig.update_layout(
+                    xaxis_title="Course",
+                    yaxis_title="Utilization Rate (%)",
+                    xaxis_tickangle=45,
+                    title_x=0.5,
+                    margin=dict(t=50, b=100),
+                    legend_title="Status",
+                    hovermode="x unified"
+                )
+                fig.update_traces(
+                    texttemplate='%{text:.1f}%',
+                    textposition='auto',
+                    hovertemplate="Course: %{x}<br>Utilization: %{y:.1f}%<br>Status: %{fullData.name}<extra></extra>"
+                )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No utilization data available for visualization.")
         else:
             st.warning("No admission results available for visualization.")
         
-        st.subheader("Capacity Optimization Suggestions")
-        optimization_df = pd.DataFrame([
-            {
-                'Course': course,
-                'Current Capacity': data['current_capacity'],
-                'Suggested Capacity': data['suggested_capacity'],
-                'Priority': data['priority']
-            } for course, data in capacity_optimization.items()
-        ])
-        if not optimization_df.empty:
-            st.dataframe(
-                optimization_df,
-                use_container_width=True,
-                column_config={
-                    'Course': "Course",
-                    'Current Capacity': "Current Capacity",
-                    'Suggested Capacity': "Suggested Capacity",
-                    'Priority': "Priority"
-                }
-            )
-        else:
-            st.warning("No optimization data available.")
+        # Capacity Optimization Suggestions (in an expander for cleaner layout)
+        with st.expander("Capacity Optimization Suggestions", expanded=False):
+            st.markdown("Recommendations for adjusting course capacities based on demand.")
+            optimization_df = pd.DataFrame([
+                {
+                    'Course': course,
+                    'Current Capacity': data['current_capacity'],
+                    'Suggested Capacity': data['suggested_capacity'],
+                    'Priority': data['priority']
+                } for course, data in capacity_optimization.items()
+            ])
+            if not optimization_df.empty:
+                st.dataframe(
+                    optimization_df,
+                    use_container_width=True,
+                    column_config={
+                        'Course': "Course",
+                        'Current Capacity': "Current Capacity",
+                        'Suggested Capacity': "Suggested Capacity",
+                        'Priority': "Priority"
+                    }
+                )
+            else:
+                st.warning("No optimization data available.")
 
     with tab4:
         st.header("Help & FAQ")
