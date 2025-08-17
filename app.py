@@ -152,6 +152,7 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
     requirements = get_course_requirements()
     neco_data = load_neco_data()
     eligible_courses = []
+    failure_reasons = []
     
     for course in course_names:
         req = requirements[course]
@@ -159,6 +160,15 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
         meets_subjects = all(subj in utme_subjects for subj in req['required_subjects'])
         meets_olevel = all(subject in olevel_subjects and olevel_subjects[subject] >= grade_map.get(req['min_olevel'].get(subject, 'C6'), 1) 
                           for subject in req['min_olevel'])
+        
+        if not meets_utme:
+            failure_reasons.append(f"{course}: UTME score {utme_score} below required {req['min_utme']}")
+        if not meets_subjects:
+            missing_subjects = [subj for subj in req['required_subjects'] if subj not in utme_subjects]
+            failure_reasons.append(f"{course}: Missing UTME subjects: {', '.join(missing_subjects)}")
+        if not meets_olevel:
+            missing_olevel = [subject for subject in req['min_olevel'] if subject not in olevel_subjects or olevel_subjects[subject] < grade_map.get(req['min_olevel'].get(subject, 'C6'), 1)]
+            failure_reasons.append(f"{course}: O'Level requirements not met for: {', '.join(missing_olevel)}")
         
         if meets_utme and meets_subjects and meets_olevel:
             interest_score = 0.3 if any(interest.lower() in course.lower() for interest in interests) else 0.1
@@ -177,10 +187,11 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
         return {
             'predicted_program': 'UNASSIGNED',
             'reason': 'No eligible courses found based on your scores and subjects.',
-            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met'],
+            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met', 'Include Mathematics in UTME subjects'],
             'all_eligible': pd.DataFrame(),
             'score': 0,
-            'interest_alignment': False
+            'interest_alignment': False,
+            'failure_reasons': failure_reasons
         }
 
     eligible_df = pd.DataFrame(eligible_courses)
@@ -205,10 +216,11 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
         return {
             'predicted_program': 'UNASSIGNED',
             'reason': 'No eligible courses predicted by the model.',
-            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met'],
+            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met', 'Include Mathematics in UTME subjects'],
             'all_eligible': pd.DataFrame(),
             'score': 0,
-            'interest_alignment': False
+            'interest_alignment': False,
+            'failure_reasons': failure_reasons
         }
 
     eligible_df = eligible_df.sort_values(by='score', ascending=False)
@@ -221,7 +233,8 @@ def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, inter
         'reason': f"Eligible for {top_course} based on ML prediction and eligibility criteria.",
         'all_eligible': eligible_df,
         'score': top_score,
-        'interest_alignment': interest_alignment
+        'interest_alignment': interest_alignment,
+        'failure_reasons': failure_reasons
     }
 
 # Load data and model
@@ -245,7 +258,7 @@ async def main():
     with tab1:
         st.header("Individual Admission Prediction")
         st.markdown("Enter your details to predict your admission eligibility and course placement.")
-        st.warning("Select at least 5 O'Level subjects with grades A1 to C6.")
+        st.warning("Select at least 5 O'Level subjects with grades A1 to C6. UTME subjects must include English Language and Mathematics.")
         
         with st.form(key=f"admission_form_{st.session_state.form_key_counter}"):
             col1, col2 = st.columns(2)
@@ -259,9 +272,9 @@ async def main():
             
             with col2:
                 utme_subjects = st.multiselect(
-                    "UTME Subjects (Select exactly 4, including English Language)",
+                    "UTME Subjects (Select exactly 4, including English Language and Mathematics)",
                     options=["English Language", "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Geography", "Agricultural Science"],
-                    default=["English Language"]
+                    default=["English Language", "Mathematics"]
                 )
                 interests = st.multiselect(
                     "Interests (Select up to 3)",
@@ -309,11 +322,13 @@ async def main():
                 elif utme_score <= 0:
                     st.error("Please enter a valid UTME score greater than 0.")
                 elif not utme_subjects or len(utme_subjects) != 4:
-                    st.error("Please select exactly 4 UTME subjects, including English Language.")
-                elif not olevel_subjects or len(olevel_subjects) < 5:
-                    st.error("Please select at least 5 O'Level subjects with valid grades.")
+                    st.error("Please select exactly 4 UTME subjects, including English Language and Mathematics.")
                 elif "English Language" not in utme_subjects:
                     st.error("English Language is a mandatory UTME subject.")
+                elif "Mathematics" not in utme_subjects:
+                    st.error("Mathematics is a mandatory UTME subject.")
+                elif not olevel_subjects or len(olevel_subjects) < 5:
+                    st.error("Please select at least 5 O'Level subjects with valid grades.")
                 else:
                     try:
                         prediction = predict_placement_enhanced(
@@ -333,6 +348,10 @@ async def main():
                                 st.subheader("Suggestions for Improvement")
                                 for suggestion in prediction['suggestions']:
                                     st.markdown(f"- {suggestion}")
+                            if 'failure_reasons' in prediction and prediction['failure_reasons']:
+                                st.subheader("Reasons for Ineligibility")
+                                for reason in prediction['failure_reasons'][:5]:  # Limit to top 5 for brevity
+                                    st.markdown(f"- {reason}")
                         else:
                             st.success(f"Congratulations! You are predicted to be admitted to **{prediction['predicted_program']}**")
                             st.write(f"**Prediction Score**: {prediction['score']:.2f}")
@@ -426,8 +445,8 @@ async def main():
                 if utme_score <= 0 or utme_score > 400:
                     invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid UTME score"})
                     continue
-                if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
-                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
+                if len(utme_subjects) != 4 or "English Language" not in utme_subjects or "Mathematics" not in utme_subjects:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language and Mathematics"})
                     continue
                 if len(olevel_subjects) < 5:
                     invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have at least 5 O'Level subjects"})
@@ -820,7 +839,7 @@ async def main():
         A: This is an ML-based admission prediction system for FUTA, using JAMB 2017-2018 and NECO 2016 data to predict eligibility and placement for 49 courses.
 
         **Q: How do I use the Individual Admission tab?**
-        A: Enter your details, including UTME score, subjects, O'Level grades (at least 5 subjects), interests, and learning style. Submit to get a prediction and download an admission letter if eligible.
+        A: Enter your details, including UTME score, subjects (must include English Language and Mathematics), O'Level grades (at least 5 subjects), interests, and learning style. Submit to get a prediction and download an admission letter if eligible.
 
         **Q: What format should the CSV file have for batch processing?**
         A: The CSV must include the following columns:
@@ -828,7 +847,7 @@ async def main():
         - `name`: Full name
         - `utme_score`: UTME score (0-400)
         - `preferred_course`: Chosen course (must match one of the 49 FUTA courses)
-        - `utme_subjects`: Comma-separated list of 4 subjects (including English Language)
+        - `utme_subjects`: Comma-separated list of 4 subjects (including English Language and Mathematics)
         - `interests`: Comma-separated list of interests
         - `learning_style`: One of Analytical Thinker, Visual Learner, Practical Learner, Conceptual Learner, Social Learner
         - `state_of_origin`: One of the 37 Nigerian states
@@ -845,7 +864,7 @@ async def main():
         A: The system uses a Random Forest model trained on synthetic data, combined with rule-based eligibility checks, considering UTME scores, O'Level grades, interests, learning styles, and diversity factors.
 
         **Q: What if I encounter an error?**
-        A: Check the error message for details. For batch processing, download the invalid rows report to identify issues. Ensure all required fields are correctly formatted.
+        A: Check the error message for details. For batch processing, download the invalid rows report to identify issues. Ensure all required fields are correctly formatted, including Mathematics in UTME subjects.
 
         **Q: Can I reset the form?**
         A: Yes, use the 'Reset Form' button in the Individual Admission tab to clear inputs and start over.
