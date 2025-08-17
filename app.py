@@ -644,10 +644,10 @@ async def process_csv_applications(df, course_capacities, jamb_data, neco_data, 
             for col in df.columns:
                 if '_grade' in col:
                     subject = col.replace('_grade', '').replace('_', ' ').title()
-                    if pd.notna(row[col]) and row[col] in grade_map:
-                        olevel_subjects[subject] = grade_map[row[col]]
+                    if row[col] > 0:  # Only include subjects with non-zero grades (already mapped in tab2)
+                        olevel_subjects[subject] = row[col]
 
-            # Validation checks
+            # Minimal validation (most checks done in tab2)
             if not name:
                 invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid name"})
                 continue
@@ -658,7 +658,7 @@ async def process_csv_applications(df, course_capacities, jamb_data, neco_data, 
                 invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
                 continue
             if len(olevel_subjects) < 5:
-                invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have at least 5 O'Level subjects"})
+                invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": f"Must have at least 5 O'Level subjects (only {len(olevel_subjects)} found: {', '.join(olevel_subjects.keys())}))"})
                 continue
             if preferred_course not in course_names:
                 invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid preferred course"})
@@ -998,10 +998,10 @@ async def main():
                 st.session_state.uploader_key += 1
                 st.rerun()
 
-            # Add missing optional columns with default 0
+            # Add missing optional columns with default NaN
             for col in optional_columns:
                 if col not in df.columns:
-                    df[col] = 0
+                    df[col] = pd.NA
 
             # Handle NaN and invalid types in string columns
             for col in ['student_id', 'name', 'preferred_course', 'utme_subjects', 'interests', 'learning_style', 'state_of_origin', 'gender']:
@@ -1010,17 +1010,20 @@ async def main():
             # Fill NaN in utme_score with -1 to mark invalid rows
             df['utme_score'] = df['utme_score'].fillna(-1)
 
-            # Validate utme_score, utme_subjects, and other fields early
+            # Validate utme_score, utme_subjects, and O'Level subjects early
             invalid_rows = []
             for idx, row in df.iterrows():
                 student_id = row.get('student_id', 'Unknown')
                 try:
+                    # Validate UTME score
                     if row['utme_score'] < 0 or row['utme_score'] > 400:
                         invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid UTME score (must be 0–400)"})
+                    # Validate UTME subjects
                     utme_subjects = row['utme_subjects'].split(',') if row['utme_subjects'].strip() else []
                     utme_subjects = [s.strip() for s in utme_subjects if s.strip()]
                     if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
                         invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": f"Invalid UTME subjects: {row['utme_subjects']} (must have exactly 4 subjects including English Language)"})
+                    # Validate other fields
                     if not row['student_id']:
                         invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid student_id"})
                     if not row['name']:
@@ -1033,6 +1036,16 @@ async def main():
                         invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid gender"})
                     if row['learning_style'] not in learning_styles:
                         invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid learning style"})
+                    # Validate O'Level subjects
+                    olevel_subjects = {}
+                    for col in df.columns:
+                        if '_grade' in col:
+                            subject = col.replace('_grade', '').replace('_', ' ').title()
+                            if pd.notna(row[col]) and row[col] in grade_map:
+                                olevel_subjects[subject] = grade_map[row[col]]
+                    if len(olevel_subjects) < 5:
+                        missing_count = 5 - len(olevel_subjects)
+                        invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": f"Must have at least 5 O'Level subjects (only {len(olevel_subjects)} found: {', '.join(olevel_subjects.keys())}))"})
                 except Exception as e:
                     invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": f"Validation error: {str(e)}"})
 
@@ -1041,7 +1054,7 @@ async def main():
             valid_df = df[~df.index.isin(invalid_indices)].copy()
 
             if invalid_rows:
-                st.warning("Some rows have invalid data (e.g., UTME score or subjects). These will be reported in the invalid rows output.")
+                st.warning("Some rows have invalid data (e.g., UTME score, subjects, or O'Level grades). These will be reported in the invalid rows output.")
                 invalid_df = pd.DataFrame(invalid_rows)
                 st.subheader("Invalid Rows Detected")
                 st.dataframe(
@@ -1064,9 +1077,9 @@ async def main():
                 )
 
             if valid_df.empty:
-                st.error("No valid rows to process after validation checks.")
-                st.session_state.uploader_key += 1
-                st.rerun()
+                st.error("No valid rows to process after validation checks. Please fix the issues in the CSV and try again.")
+                # Do not call st.rerun() to keep invalid rows report visible
+                st.stop()
 
             # Convert utme_subjects and interests to lists
             valid_df['utme_subjects'] = valid_df['utme_subjects'].apply(
@@ -1076,10 +1089,10 @@ async def main():
                 lambda x: x.split(',') if x.strip() else []
             )
 
-            # Convert O'Level grades to numeric scores
+            # Convert O'Level grades to numeric scores, treating NaN as 0
             for col in optional_columns + ['english_language_grade']:
                 if col in valid_df.columns:
-                    valid_df[col] = valid_df[col].apply(lambda x: grade_map.get(str(x).strip(), 0)).astype(int)
+                    valid_df[col] = valid_df[col].apply(lambda x: grade_map.get(str(x).strip(), 0) if pd.notna(x) else 0).astype(int)
 
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -1222,6 +1235,8 @@ async def main():
 
             else:
                 st.error("No valid applications processed. Check the invalid rows report.")
+                # Do not call st.rerun() to keep invalid rows report visible
+                st.stop()
 
         except Exception as e:
             logger.error("Error processing CSV: %s", str(e))
