@@ -1056,18 +1056,31 @@ async def main():
     with tab3:
         st.header("Analytics & Insights")
         st.markdown("Explore admission trends, course demand, and capacity utilization with interactive visualizations.")
-        
+
         admission_results = st.session_state.batch_results or []
         demand = analyze_student_demand(pd.DataFrame(), jamb_data, neco_data)
         capacity_optimization = optimize_course_capacities(demand, course_capacities)
         capacity_utilization = calculate_capacity_utilization(admission_results, course_capacities)
+
+        # Custom color scheme for consistency (modern and vibrant)
+        color_scheme = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
         
-        # Custom color scheme for consistency
-        color_scheme = px.colors.qualitative.Plotly
-        
+        # Custom Plotly template for better aesthetics
+        custom_template = {
+            "layout": {
+                "font": {"family": "Arial", "size": 14, "color": "#333333"},
+                "paper_bgcolor": "rgba(255,255,255,0.9)",
+                "plot_bgcolor": "rgba(245,245,245,0.9)",
+                "margin": {"t": 80, "b": 80, "l": 60, "r": 60},
+                "showlegend": True,
+                "legend": {"x": 1, "y": 1, "xanchor": "right", "yanchor": "top", "font": {"size": 12}},
+                "hoverlabel": {"bgcolor": "white", "font_size": 12, "font_family": "Arial"}
+            }
+        }
+
         # Layout: Two columns for charts
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.subheader("Admitted Students by Faculty (Bar)")
             if admission_results:
@@ -1085,26 +1098,31 @@ async def main():
                         title="Admitted Students by Faculty",
                         color='Faculty',
                         color_discrete_sequence=color_scheme,
-                        text='Admitted'
+                        text='Admitted',
+                        template=custom_template
                     )
                     fig.update_layout(
                         xaxis_title="Faculty",
                         yaxis_title="Number of Students Admitted",
                         showlegend=False,
                         title_x=0.5,
-                        margin=dict(t=50, b=50),
-                        hovermode="x unified"
+                        height=400,
+                        hovermode="x unified",
+                        xaxis_tickangle=45
                     )
                     fig.update_traces(
-                        textposition='auto',
-                        hovertemplate="%{x}<br>Admitted: %{y}<extra></extra>"
+                        textposition='outside',
+                        texttemplate='%{text}',
+                        hovertemplate="%{x}<br>Admitted: %{y}<extra></extra>",
+                        marker_line_width=1.5,
+                        marker_line_color='white'
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("No faculty data available for visualization.")
             else:
                 st.warning("No admission results available. Process batch applications in Tab 2 to generate data.")
-        
+
         with col2:
             st.subheader("Faculty Admission Distribution (Pie)")
             if admission_results:
@@ -1120,22 +1138,25 @@ async def main():
                         names='Faculty', 
                         values='Admitted', 
                         title="Distribution of Admitted Students by Faculty",
-                        color_discrete_sequence=color_scheme
+                        color_discrete_sequence=color_scheme,
+                        template=custom_template
                     )
                     fig.update_traces(
                         textinfo='percent+label',
-                        hovertemplate="%{label}<br>Admitted: %{value}<br>Percentage: %{percent}<extra></extra>"
+                        textposition='inside',
+                        hovertemplate="%{label}<br>Admitted: %{value}<br>Percentage: %{percent}<extra></extra>",
+                        marker=dict(line=dict(color='white', width=1.5))
                     )
                     fig.update_layout(
                         title_x=0.5,
-                        margin=dict(t=50, b=50)
+                        height=400
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("No faculty data available for visualization.")
             else:
                 st.warning("No admission results available for visualization.")
-        
+
         st.subheader("NECO Pass Rates by State and Gender")
         if not neco_data.empty:
             neco_melted = neco_data.melt(id_vars=['state'], value_vars=['male_pass_rate', 'female_pass_rate'], 
@@ -1149,32 +1170,35 @@ async def main():
                     color='Gender', 
                     barmode='group', 
                     title="NECO Pass Rates by State and Gender",
-                    color_discrete_sequence=color_scheme[:2]
+                    color_discrete_sequence=color_scheme[:2],
+                    template=custom_template
                 )
                 fig.update_layout(
                     xaxis_title="State",
                     yaxis_title="Pass Rate (%)",
                     xaxis_tickangle=45,
                     title_x=0.5,
-                    margin=dict(t=50, b=100),
+                    height=450,
                     legend_title="Gender",
                     hovermode="x unified"
                 )
                 fig.update_traces(
-                    hovertemplate="%{x}<br>%{fullData.name}<br>Pass Rate: %{y:.2f}%<extra></extra>"
+                    hovertemplate="%{x}<br>%{fullData.name}<br>Pass Rate: %{y:.2f}%<extra></extra>",
+                    marker_line_width=1.5,
+                    marker_line_color='white'
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No NECO data available for visualization.")
         else:
             st.warning("No NECO data available for visualization.")
-        
+
         st.subheader("Course Demand by Faculty (Heatmap)")
         demand_df = pd.DataFrame([
             {
                 'Course': course,
                 'Faculty': get_course_requirements()[course]['faculty'],
-                'Demand Score': data['demand_score'] * 100  # Scale for visualization
+                'Demand Score': data['demand_score'] * 100
             } for course, data in demand.items()
         ])
         if not demand_df.empty:
@@ -1189,13 +1213,15 @@ async def main():
                 demand_pivot,
                 title="Course Demand by Faculty",
                 color_continuous_scale='Viridis',
-                labels=dict(x="Course", y="Faculty", color="Demand Score (%)")
+                labels=dict(x="Course", y="Faculty", color="Demand Score (%)"),
+                template=custom_template
             )
             fig.update_layout(
                 xaxis_tickangle=45,
                 title_x=0.5,
-                margin=dict(t=50, b=100),
-                height=500
+                height=500,
+                xaxis=dict(tickfont=dict(size=12)),
+                yaxis=dict(tickfont=dict(size=12))
             )
             fig.update_traces(
                 hovertemplate="Faculty: %{y}<br>Course: %{x}<br>Demand Score: %{z:.2f}%<extra></extra>"
@@ -1203,7 +1229,7 @@ async def main():
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("No demand data available for visualization.")
-        
+
         st.subheader("Admission Scores by Course (Line)")
         if admission_results:
             course_scores = pd.DataFrame([
@@ -1220,25 +1246,28 @@ async def main():
                     y='Average Score', 
                     title="Average Admission Scores by Course",
                     markers=True,
-                    color_discrete_sequence=color_scheme
+                    color_discrete_sequence=color_scheme,
+                    template=custom_template
                 )
                 fig.update_layout(
                     xaxis_title="Course",
                     yaxis_title="Average Prediction Score",
                     xaxis_tickangle=45,
                     title_x=0.5,
-                    margin=dict(t=50, b=100),
+                    height=400,
                     hovermode="x unified"
                 )
                 fig.update_traces(
-                    hovertemplate="Course: %{x}<br>Average Score: %{y:.2f}<extra></extra>"
+                    hovertemplate="Course: %{x}<br>Average Score: %{y:.2f}<extra></extra>",
+                    line=dict(width=2.5),
+                    marker=dict(size=8)
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No admission scores available for visualization.")
         else:
             st.warning("No admission results available. Process batch applications in Tab 2 to generate data.")
-        
+
         st.subheader("Faculty Capacity Utilization")
         if admission_results:
             utilization_df = pd.DataFrame([
@@ -1256,28 +1285,31 @@ async def main():
                     color='Status', 
                     title="Course Capacity Utilization",
                     color_discrete_map={'Optimal': '#00CC96', 'Overcapacity': '#EF553B'},
-                    text='Utilization Rate'
+                    text='Utilization Rate',
+                    template=custom_template
                 )
                 fig.update_layout(
                     xaxis_title="Course",
                     yaxis_title="Utilization Rate (%)",
                     xaxis_tickangle=45,
                     title_x=0.5,
-                    margin=dict(t=50, b=100),
+                    height=450,
                     legend_title="Status",
                     hovermode="x unified"
                 )
                 fig.update_traces(
                     texttemplate='%{text:.1f}%',
-                    textposition='auto',
-                    hovertemplate="Course: %{x}<br>Utilization: %{y:.1f}%<br>Status: %{fullData.name}<extra></extra>"
+                    textposition='outside',
+                    hovertemplate="Course: %{x}<br>Utilization: %{y:.1f}%<br>Status: %{fullData.name}<extra></extra>",
+                    marker_line_width=1.5,
+                    marker_line_color='white'
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No utilization data available for visualization.")
         else:
             st.warning("No admission results available for visualization.")
-        
+
         with st.expander("Capacity Optimization Suggestions", expanded=False):
             st.markdown("Recommendations for adjusting course capacities based on demand.")
             optimization_df = pd.DataFrame([
@@ -1301,7 +1333,7 @@ async def main():
                 )
             else:
                 st.warning("No optimization data available.")
-        with tab4:
+    with tab4:
             st.header("Help & FAQ")
             st.markdown("""
             ### Frequently Asked Questions
