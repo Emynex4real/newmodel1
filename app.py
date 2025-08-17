@@ -1,746 +1,290 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, mean_squared_error
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
 import logging
-import traceback
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-import io
 from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+import io
 import plotly.express as px
 import asyncio
-import model_utils
 
-# Logging setup
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Part 1: Constants and Helper Functions ---
 # Constants
-NIGERIAN_STATES = ["Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara", "FCT"]
-common_subjects = ["English Language", "Mathematics", "Physics", "Chemistry", "Biology", "Economics"]
+course_names = [
+    "Computer Science", "Mechanical Engineering", "Electrical Engineering", "Civil Engineering",
+    "Chemical Engineering", "Biochemistry", "Microbiology", "Industrial Chemistry",
+    "Physics", "Mathematics", "Statistics", "Geology", "Meteorology",
+    "Agricultural Economics", "Animal Production", "Crop Production", "Food Science",
+    "Forestry", "Fisheries", "Architecture", "Estate Management", "Quantity Surveying",
+    "Urban Planning", "Industrial Design", "Information Technology", "Cyber Security",
+    "Software Engineering", "Biomedical Technology", "Marine Science", "Petroleum Engineering",
+    "Metallurgical Engineering", "Mining Engineering", "Surveying", "Applied Geophysics",
+    "Applied Geology", "Agricultural Engineering", "Environmental Management",
+    "Project Management", "Transport Management", "Accounting Technology",
+    "Entrepreneurship", "Banking and Finance", "Business Administration", "Economics",
+    "Building Technology", "Remote Sensing", "Bioinformatics", "Biotechnology", "Data Science"
+]
+
+NIGERIAN_STATES = [
+    "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+    "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo",
+    "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa",
+    "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba",
+    "Yobe", "Zamfara"
+]
+
+learning_styles = ["Analytical Thinker", "Visual Learner", "Practical Learner", "Conceptual Learner", "Social Learner"]
+
 grade_map = {"A1": 6, "B2": 5, "B3": 4, "C4": 3, "C5": 2, "C6": 1}
-learning_styles = {
-    "Analytical Thinker": ["Computer Science", "Mechanical Engineering"],
-    "Visual Learner": ["Physiology"],
-    "Practical Learner": ["Mechanical Engineering"]
-}
-interest_categories = {
-    "Problem Solving & Logic": ["Computer Science"],
-    "Technology & Innovation": ["Computer Science", "Mechanical Engineering"],
-    "Healthcare & Medicine": ["Physiology"]
-}
-course_names = ["Computer Science", "Physiology", "Mechanical Engineering"]
-cutoff_marks = {
-    "Computer Science": 200,
-    "Physiology": 180,
-    "Mechanical Engineering": 190
-}
 
-# Helper functions
+# Available O'Level subjects
+olevel_subjects_options = [
+    "English Language", "Mathematics", "Physics", "Chemistry", "Biology",
+    "Economics", "Geography", "Agricultural Science", "Technical Drawing",
+    "Further Mathematics", "Government", "Literature in English"
+]
+
+# Initialize session state
+if 'form_key_counter' not in st.session_state:
+    st.session_state.form_key_counter = 0
+if 'uploader_key' not in st.session_state:
+    st.session_state.uploader_key = 0
+if 'batch_results' not in st.session_state:
+    st.session_state.batch_results = []
+if 'eligible_courses_df' not in st.session_state:
+    st.session_state.eligible_courses_df = pd.DataFrame()
+if 'invalid_rows' not in st.session_state:
+    st.session_state.invalid_rows = []
+
+def load_jamb_data():
+    return pd.DataFrame({
+        'course': course_names,
+        'faculty': ['Engineering'] * 5 + ['Science'] * 8 + ['Agriculture'] * 5 + ['Environmental Sciences'] * 6 + ['Technology'] * 7 + ['Management Sciences'] * 4 + ['Environmental Sciences'] * 3 + ['Science'] * 2,
+        'total_2017': np.random.randint(100, 1000, size=len(course_names)),
+        'total_2018': np.random.randint(100, 1000, size=len(course_names))
+    })
+
+def load_neco_data():
+    return pd.DataFrame({
+        'state': NIGERIAN_STATES,
+        'male_pass_rate': np.random.uniform(50, 90, len(NIGERIAN_STATES)),
+        'female_pass_rate': np.random.uniform(50, 90, len(NIGERIAN_STATES))
+    })
+
 def get_course_requirements():
-    return {
-        "Computer Science": {
-            "olevel_required": ["English Language", "Mathematics", "Physics"],
-            "olevel_any": ["Chemistry", "Biology", "Economics"],
-            "min_grades": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6"},
-            "utme_required": ["English Language", "Mathematics", "Physics"],
-            "utme_any": ["Chemistry", "Biology"]
-        },
-        "Physiology": {
-            "olevel_required": ["English Language", "Mathematics", "Biology", "Chemistry"],
-            "olevel_any": ["Physics", "Economics"],
-            "min_grades": {"English Language": "C6", "Mathematics": "C6", "Biology": "C6", "Chemistry": "C6"},
-            "utme_required": ["English Language", "Biology", "Chemistry"],
-            "utme_any": ["Physics"]
-        },
-        "Mechanical Engineering": {
-            "olevel_required": ["English Language", "Mathematics", "Physics", "Chemistry"],
-            "olevel_any": ["Biology", "Economics"],
-            "min_grades": {"English Language": "C6", "Mathematics": "C6", "Physics": "C6", "Chemistry": "C6"},
-            "utme_required": ["English Language", "Mathematics", "Physics"],
-            "utme_any": ["Chemistry"]
+    requirements = {}
+    for course in course_names:
+        faculty = 'Engineering' if course in course_names[:5] else \
+                 'Science' if course in course_names[5:13] else \
+                 'Agriculture' if course in course_names[13:18] else \
+                 'Environmental Sciences' if course in course_names[18:24] else \
+                 'Technology' if course in course_names[24:31] else \
+                 'Management Sciences' if course in course_names[31:35] else \
+                 'Environmental Sciences' if course in course_names[35:38] else \
+                 'Science'
+        required_subjects = ["English Language", "Mathematics", "Physics", "Chemistry"] if 'Engineering' in course or 'Science' in course else \
+                           ["English Language", "Mathematics", "Biology", "Agricultural Science"] if 'Agriculture' in course else \
+                           ["English Language", "Mathematics", "Economics", "Geography"] if 'Management Sciences' in course else \
+                           ["English Language", "Mathematics", "Geography", "Technical Drawing"]
+        min_utme = 180 if 'Science' in course else 200
+        min_olevel = {'English Language': 'C6', 'Mathematics': 'C6'}
+        requirements[course] = {
+            'faculty': faculty,
+            'required_subjects': required_subjects,
+            'min_utme': min_utme,
+            'min_olevel': min_olevel
         }
-    }
-
-def is_eligible(olevel_subjects, utme_subjects, course, parsed_requirements, utme_score):
-    req = parsed_requirements.get(course, {})
-    required_olevel = req.get("olevel_required", [])
-    any_olevel = req.get("olevel_any", [])
-    min_grades = req.get("min_grades", {})
-    required_utme = req.get("utme_required", [])
-    any_utme = req.get("utme_any", [])
-    
-    olevel_valid = all(sub in olevel_subjects for sub in required_olevel)
-    olevel_any_valid = len([sub for sub in olevel_subjects if sub in any_olevel]) >= (5 - len(required_olevel))
-    grade_valid = all(olevel_subjects.get(sub, 0) >= grade_map.get(min_grades.get(sub, "C6"), 1) for sub in required_olevel)
-    utme_valid = all(sub in utme_subjects for sub in required_utme)
-    utme_any_valid = len([sub for sub in utme_subjects if sub in any_utme]) >= (4 - len(required_utme))
-    utme_score_valid = utme_score >= st.session_state.cutoff_marks.get(course, 180)
-    
-    return olevel_valid and olevel_any_valid and grade_valid and utme_valid and utme_any_valid and utme_score_valid
-
-def compute_grade_sum(olevel_subjects, course, parsed_requirements):
-    req = parsed_requirements.get(course, {})
-    required = req.get("olevel_required", [])
-    any_subjects = req.get("olevel_any", [])
-    grades = [olevel_subjects.get(sub, 0) for sub in required]
-    any_grades = [olevel_subjects.get(sub, 0) for sub in any_subjects if sub in olevel_subjects]
-    grades.extend(any_grades[:max(0, 5 - len(required))])
-    return sum(grades), len(grades)
-
-def compute_enhanced_score(utme_score, grade_sum, count, interest_weight, diversity_score):
-    utme_weight = utme_score / 400 * 0.5
-    olevel_weight = grade_sum / (count * 6) * 0.3 if count > 0 else 0
-    return min(utme_weight + olevel_weight + interest_weight + diversity_score, 1.0)
-
-def get_dynamic_course_capacities(df):
-    return {course: 100 for course in course_names}
-
-def create_comprehensive_admission_report(admission_results, df, course_capacities):
-    detailed_results = pd.DataFrame(admission_results)
-    summary_stats = {
-        'Total Applicants': len(admission_results),
-        'Admitted Students': sum(1 for r in admission_results if r['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION'])
-    }
-    course_breakdown = pd.DataFrame([
-        {
-            'admitted_course': course,
-            'Students_Admitted': sum(1 for r in admission_results if r['admitted_course'] == course),
-            'Avg_Score': np.mean([r['score'] for r in admission_results if r['admitted_course'] == course]) if any(r['admitted_course'] == course for r in admission_results) else 0,
-            'Min_Score': min([r['score'] for r in admission_results if r['admitted_course'] == course], default=0),
-            'Max_Score': max([r['score'] for r in admission_results if r['admitted_course'] == course], default=0),
-            'Capacity': course_capacities.get(course, 0),
-            'Utilization_Rate': (sum(1 for r in admission_results if r['admitted_course'] == course) / course_capacities.get(course, 1)) * 100
-        } for course in course_names
-    ])
-    return detailed_results, summary_stats, course_breakdown
+    return requirements
 
 def generate_admission_letter(student_data):
     buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    c.drawString(100, 750, f"Admission Letter for {student_data['name']}")
-    c.drawString(100, 730, f"Student ID: {student_data['student_id']}")
-    c.drawString(100, 710, f"Admitted to: {student_data['admitted_course']}")
-    c.save()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+    story.append(Paragraph("Federal University of Technology, Akure", styles['Title']))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Admission Letter for {student_data['name']}", styles['Heading1']))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Student ID: {student_data['student_id']}", styles['Normal']))
+    story.append(Paragraph(f"Course: {student_data['admitted_course']}", styles['Normal']))
+    story.append(Paragraph(f"Admission Type: {student_data['admission_type']}", styles['Normal']))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Dear {student_data['name']},", styles['Normal']))
+    story.append(Paragraph("Congratulations on your admission to the Federal University of Technology, Akure!", styles['Normal']))
+    doc.build(story)
     buffer.seek(0)
     return buffer
 
-def analyze_student_demand(df):
-    return {
-        course: {
-            'primary_demand': sum(1 for _, row in df.iterrows() if row['preferred_course'] == course),
-            'secondary_demand': 0,
-            'total_estimated_demand': sum(1 for _, row in df.iterrows() if row['preferred_course'] == course),
-            'demand_category': 'High' if sum(1 for _, row in df.iterrows() if row['preferred_course'] == course) > 50 else 'Low'
-        } for course in course_names
-    }
-
-def optimize_course_capacities(demand, capacities):
-    return {
-        course: {
-            'current_capacity': capacities.get(course, 0),
-            'suggested_capacity': max(capacities.get(course, 0), demand.get(course, 0)),
-            'reason': 'Based on demand',
-            'priority': 'High' if demand.get(course, 0) > capacities.get(course, 0) else 'Low'
-        } for course in course_names
-    }
-
-def calculate_capacity_utilization(admission_results, course_capacities):
-    return {
-        course: {
-            'Capacity': course_capacities.get(course, 0),
-            'Admitted': sum(1 for r in admission_results if r['admitted_course'] == course),
-            'Available': course_capacities.get(course, 0) - sum(1 for r in admission_results if r['admitted_course'] == course),
-            'Utilization Rate': (sum(1 for r in admission_results if r['admitted_course'] == course) / course_capacities.get(course, 1)) * 100,
-            'Status': 'Optimal' if (sum(1 for r in admission_results if r['admitted_course'] == course) / course_capacities.get(course, 1)) < 0.9 else 'Overcapacity'
-        } for course in course_names
-    }
-
-# --- Part 2: ML Models and Core Processing ---
-ELIGIBILITY_MODEL = None
-ELIGIBILITY_SCALER = None
-ELIGIBILITY_FEATURES = None
-SCORING_MODEL = None
-SCORING_SCALER = None
-SCORING_FEATURES = None
-
-# --- Editable cutoffs and capacities (admin only) ---
-if 'cutoff_marks' not in st.session_state:
-    st.session_state.cutoff_marks = cutoff_marks.copy()
-if 'course_capacities' not in st.session_state:
-    st.session_state.course_capacities = {c: 100 for c in course_names}
-
-# --- Simple authentication (admin password) ---
-def is_admin():
-    return st.session_state.get('is_admin', False)
-
-def admin_login():
-    with st.sidebar:
-        st.subheader('Admin Login')
-        pw = st.text_input('Enter admin password', type='password', key='admin_pw')
-        if st.button('Login', key='admin_login_btn'):
-            if pw == 'futa2025':
-                st.session_state['is_admin'] = True
-                st.success('Admin login successful!')
-            else:
-                st.error('Incorrect password.')
-        if st.button('Logout', key='admin_logout_btn'):
-            st.session_state['is_admin'] = False
-            st.success('Logged out.')
-
 def train_eligibility_model():
-    global ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES
-    logger.info("Training eligibility model")
-    data = []
-    parsed_req = get_course_requirements()
-    grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}
-    for course in course_names:
-        # Generate eligible samples
-        for _ in range(500):
-            utme = np.random.randint(st.session_state.cutoff_marks[course], 400)
-            olevels = {}
-            reqs = parsed_req[course]
-            for sub in reqs['olevel_required']:
-                olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
-            for sub in reqs['olevel_any']:
-                if np.random.rand() < 0.7:
-                    olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
-            while len(olevels) < 5:
-                sub = np.random.choice([s for s in common_subjects if s not in olevels])
-                olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
-            utme_subjects = reqs['utme_required'][:]
-            while len(utme_subjects) < 4:
-                extra = np.random.choice([s for s in reqs['utme_any'] if s not in utme_subjects], replace=False)
-                utme_subjects.append(extra)
-            interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2]), replace=False).tolist()
-            learning = np.random.choice(list(learning_styles.keys()))
-            state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
-            state_probs = np.array(state_probs) / np.sum(state_probs)
-            state = np.random.choice(NIGERIAN_STATES, p=state_probs)
-            gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
-            features = {'utme': utme, 'eligible': 1}
-            for sub in common_subjects:
-                features[sub] = olevels.get(sub, 0)
-            for utme_sub in common_subjects:
-                features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
-            for int_ in interest_categories.keys():
-                features[int_] = 1 if int_ in interests else 0
-            for ls in learning_styles.keys():
-                features[f'ls_{ls}'] = 1 if learning == ls else 0
-            features['diversity_score'] = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
-            features['course'] = course
-            data.append(features)
-        # Generate ineligible samples
-        for _ in range(500):
-            utme = np.random.randint(100, max(st.session_state.cutoff_marks[course], 101))
-            olevels = {}
-            reqs = parsed_req[course]
-            required_missing = np.random.choice(reqs['olevel_required']) if np.random.rand() < 0.5 else None
-            for sub in reqs['olevel_required']:
-                if sub != required_missing:
-                    olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
-                else:
-                    olevels[sub] = 0
-            for sub in reqs['olevel_any']:
-                if np.random.rand() < 0.5:
-                    olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
-            while len(olevels) < 5:
-                sub = np.random.choice([s for s in common_subjects if s not in olevels])
-                olevels[sub] = grade_map[np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values()))]
-            utme_subjects = reqs['utme_required'][:]
-            if np.random.rand() < 0.5 and len(utme_subjects) > 1:
-                utme_subjects = utme_subjects[:-1]
-            while len(utme_subjects) < 4:
-                extra = np.random.choice([s for s in common_subjects if s not in utme_subjects])
-                utme_subjects.append(extra)
-            interests = np.random.choice(list(interest_categories.keys()), np.random.choice([1, 2]), replace=False).tolist()
-            learning = np.random.choice(list(learning_styles.keys()))
-            state = np.random.choice(NIGERIAN_STATES, p=state_probs)
-            gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
-            features = {'utme': utme, 'eligible': 0}
-            for sub in common_subjects:
-                features[sub] = olevels.get(sub, 0)
-            for utme_sub in common_subjects:
-                features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
-            for int_ in interest_categories.keys():
-                features[int_] = 1 if int_ in interests else 0
-            for ls in learning_styles.keys():
-                features[f'ls_{ls}'] = 1 if learning == ls else 0
-            features['diversity_score'] = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
-            features['course'] = course
-            data.append(features)
+    np.random.seed(42)
+    n_samples = 1000
+    data = {
+        'utme_score': np.random.randint(150, 400, n_samples),
+        'olevel_avg': np.random.uniform(1, 6, n_samples),
+        'interest_match': np.random.uniform(0, 1, n_samples),
+        'learning_style_score': np.random.uniform(0, 1, n_samples),
+        'diversity_score': np.random.uniform(0, 0.2, n_samples)
+    }
     df = pd.DataFrame(data)
-    eligible_counts = df['eligible'].value_counts()
-    if len(eligible_counts) < 2:
-        logger.warning("Synthetic data had only one eligibility class. Forcing both classes.")
-        forced = []
-        for val in [0, 1]:
-            for i in range(100):
-                row = df.iloc[i % len(df)].copy()
-                row['eligible'] = val
-                forced.append(row)
-        df = pd.concat([df, pd.DataFrame(forced)], ignore_index=True)
-    df = pd.get_dummies(df, columns=['course'])
-    X = df.drop('eligible', axis=1)
-    y = df['eligible']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, class_weight='balanced')
-    model.fit(X_train_scaled, y_train)
-    X_test_scaled = scaler.transform(X_test)
-    y_pred = model.predict(X_test_scaled)
-    accuracy = accuracy_score(y_test, y_pred)
-    logger.info(f"Eligibility model trained with accuracy: {accuracy:.4f}")
-    ELIGIBILITY_MODEL = model
-    ELIGIBILITY_SCALER = scaler
-    ELIGIBILITY_FEATURES = X.columns.tolist()
-    model_utils.save_model(model, scaler, ELIGIBILITY_FEATURES, 'eligibility')
+    y = np.random.choice(course_names + ['UNASSIGNED'], n_samples)
+    
+    le = LabelEncoder()
+    y_encoded = le.fit_transform(y)
+    
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(df, y_encoded)
+    return model, le
 
-def train_scoring_model():
-    global SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES
-    logger.info("Training scoring model")
-    data = []
-    parsed_req = get_course_requirements()
-    grade_probs = {"A1": 0.05, "B2": 0.10, "B3": 0.15, "C4": 0.25, "C5": 0.25, "C6": 0.20}
-    for _ in range(2000):
-        utme = np.clip(np.random.normal(220, 40), 120, 400)
-        num_subjects = np.random.choice([5, 6], p=[0.7, 0.3])
-        selected_olevel_subs = np.random.choice(common_subjects, num_subjects, replace=False)
-        olevels = {sub: np.random.choice(list(grade_probs.keys()), p=list(grade_probs.values())) for sub in selected_olevel_subs}
-        olevels = {k: grade_map[v] + np.random.normal(0, 0.2) for k, v in olevels.items()}
-        utme_subjects = ["English Language"] + list(np.random.choice(
-            [s for s in common_subjects if s != "English Language"], 3, replace=False))
-        interests = np.random.choice(list(interest_categories.keys()), np.random.randint(1, len(interest_categories.keys()) + 1), replace=False).tolist()
-        learning = np.random.choice(list(learning_styles.keys()))
-        state_probs = [0.03]*10 + [0.04]*10 + [0.06]*5 + [0.07]*10 + [0.15] + [0.03]
-        state_probs = np.array(state_probs) / np.sum(state_probs)
-        state = np.random.choice(NIGERIAN_STATES, p=state_probs)
-        gender = np.random.choice(["Male", "Female", "Other"], p=[0.48, 0.50, 0.02])
-        for course in course_names:
-            eligible = is_eligible(olevels, utme_subjects, course, parsed_req, utme)
-            interest_weight = sum(1 for int_ in interests if course in interest_categories.get(int_, [])) * 0.3
-            if learning in learning_styles and course in learning_styles[learning]:
-                interest_weight += 0.2
-            diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
-            if eligible:
-                grade_sum, count = compute_grade_sum(olevels, course, parsed_req)
-                score = compute_enhanced_score(utme, grade_sum, count, interest_weight, diversity_score)
-            else:
-                grade_sum, count = compute_grade_sum(olevels, course, parsed_req)
-                score = compute_enhanced_score(utme * 0.7, grade_sum * 0.7, count, interest_weight * 0.5, diversity_score * 0.5)
-                score = max(score, 0.1)  # Ensure non-zero score for ineligible cases
-            features = {
-                'utme': utme,
-                'score': score
-            }
-            for sub in common_subjects:
-                features[sub] = olevels.get(sub, 0)
-            for utme_sub in common_subjects:
-                features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
-            for int_ in interest_categories.keys():
-                features[int_] = 1 if int_ in interests else 0
-            for ls in learning_styles.keys():
-                features[f'ls_{ls}'] = 1 if learning == ls else 0
-            features['diversity_score'] = diversity_score
-            features['course'] = course
-            data.append(features)
-    df = pd.DataFrame(data)
-    df = pd.get_dummies(df, columns=['course'])
-    X = df.drop('score', axis=1)
-    y = df['score']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
-    model.fit(X_train_scaled, y_train)
-    X_test_scaled = scaler.transform(X_test)
-    y_pred = model.predict(X_test_scaled)
-    mse = mean_squared_error(y_test, y_pred)
-    logger.info(f"Scoring model trained with MSE: {mse:.4f}")
-    SCORING_MODEL = model
-    SCORING_SCALER = scaler
-    SCORING_FEATURES = X.columns.tolist()
-    model_utils.save_model(model, scaler, SCORING_FEATURES, 'scoring')
-
-# Load models if available, else train and save
-ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES = model_utils.load_model('eligibility')
-if ELIGIBILITY_MODEL is None:
-    train_eligibility_model()
-    ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES = model_utils.load_model('eligibility')
-
-SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES = model_utils.load_model('scoring')
-if SCORING_MODEL is None:
-    train_scoring_model()
-    SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES = model_utils.load_model('scoring')
-
-def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, selected_interests, learning_style, state, gender):
-    global ELIGIBILITY_MODEL, ELIGIBILITY_SCALER, ELIGIBILITY_FEATURES, SCORING_MODEL, SCORING_SCALER, SCORING_FEATURES
-    results = []
-    parsed_req = get_course_requirements()
-    diversity_score = 0.5 if state in ["Yobe", "Zamfara", "Borno"] else 0.3 if gender == "Female" else 0
-    logger.debug(f"Input features: utme_score={utme_score}, olevel_subjects={olevel_subjects}, utme_subjects={utme_subjects}, "
-                 f"interests={selected_interests}, learning_style={learning_style}, state={state}, gender={gender}")
+def predict_placement_enhanced(utme_score, olevel_subjects, utme_subjects, interests, learning_style, state, gender, model, label_encoder):
+    requirements = get_course_requirements()
+    neco_data = load_neco_data()
+    eligible_courses = []
+    
     for course in course_names:
-        features = {
-            'utme': utme_score,
-        }
-        for sub in common_subjects:
-            features[sub] = olevel_subjects.get(sub, 0)
-        for utme_sub in common_subjects:
-            features[f'utme_{utme_sub}'] = 1 if utme_sub in utme_subjects else 0
-        for int_ in interest_categories.keys():
-            features[int_] = 1 if int_ in selected_interests else 0
-        for ls in learning_styles.keys():
-            features[f'ls_{ls}'] = 1 if learning_style == ls else 0
-        features['diversity_score'] = diversity_score
-        for c in course_names:
-            features[f'course_{c}'] = 1 if c == course else 0
-
-        # Rule-based eligibility check
-        rule_eligible = is_eligible(olevel_subjects, utme_subjects, course, parsed_req, utme_score)
+        req = requirements[course]
+        meets_utme = utme_score >= req['min_utme']
+        meets_subjects = all(subj in utme_subjects for subj in req['required_subjects'])
+        meets_olevel = all(subject in olevel_subjects and olevel_subjects[subject] >= grade_map.get(req['min_olevel'].get(subject, 'C6'), 1) 
+                          for subject in req['min_olevel'])
         
-        # Predict eligibility using ML model
-        features_df = pd.DataFrame([features])
-        for feature in ELIGIBILITY_FEATURES:
-            if feature not in features_df.columns:
-                features_df[feature] = 0
-        features_df = features_df[ELIGIBILITY_FEATURES]
-        X_scaled = ELIGIBILITY_SCALER.transform(features_df)
-        proba = ELIGIBILITY_MODEL.predict_proba(X_scaled)[0]
-        eligible_prob = proba[1] if len(ELIGIBILITY_MODEL.classes_) == 2 else (1.0 if ELIGIBILITY_MODEL.classes_[0] == 1 else 0.0)
-        eligible = eligible_prob > 0.5 and rule_eligible  # Combine ML and rule-based eligibility
+        if meets_utme and meets_subjects and meets_olevel:
+            interest_score = 0.3 if any(interest.lower() in course.lower() for interest in interests) else 0.1
+            learning_style_score = 0.2 if learning_style in ['Analytical Thinker', 'Practical Learner'] and 'Engineering' in course else 0.1
+            diversity_score = 0.1 if state in NIGERIAN_STATES[:5] else 0.05
+            olevel_pass_rate = np.mean([olevel_subjects[subj] for subj in olevel_subjects]) / 6
+            eligible_courses.append({
+                'course': course,
+                'interest_score': interest_score,
+                'learning_style_score': learning_style_score,
+                'diversity_score': diversity_score,
+                'olevel_pass_rate': olevel_pass_rate
+            })
 
-        # Predict score using ML model
-        features_df = pd.DataFrame([features])
-        for feature in SCORING_FEATURES:
-            if feature not in features_df.columns:
-                features_df[feature] = 0
-        features_df = features_df[SCORING_FEATURES]
-        X_scaled = SCORING_SCALER.transform(features_df)
-        score = SCORING_MODEL.predict(X_scaled)[0]
-        if not eligible:
-            score = score * 0.5  # Penalize score for ineligible courses
-
-        interest_weight = sum(1 for int_ in selected_interests if course in interest_categories.get(int_, [])) * 0.3
-        if learning_style in learning_styles and course in learning_styles[learning_style]:
-            interest_weight += 0.2
-
-        logger.debug(f"Course: {course}, Eligible: {eligible}, Eligible Prob: {eligible_prob:.2f}, Score: {score:.2f}, "
-                     f"Interest Weight: {interest_weight:.2f}, Diversity Score: {diversity_score:.2f}")
-        
-        results.append({
-            "course": course,
-            "eligible": eligible,
-            "score": score,
-            "interest_weight": interest_weight,
-            "diversity_score": diversity_score,
-            "eligible_prob": eligible_prob
-        })
-
-    results_df = pd.DataFrame(results)
-    logger.debug(f"Results DataFrame:\n{results_df}")
-    eligible_courses = results_df[results_df["eligible"] & (results_df["score"] >= 0)]
-    if eligible_courses.empty:
-        logger.warning(f"No eligible courses found. Highest eligibility prob: {results_df['eligible_prob'].max():.2f}")
+    if not eligible_courses:
         return {
-            "predicted_program": "UNASSIGNED",
-            "score": 0,
-            "reason": f"No eligible courses based on combined ML and rule-based prediction (highest eligibility prob: {results_df['eligible_prob'].max():.2f})",
-            "all_eligible": pd.DataFrame(),
-            "suggestions": [
-                f"Ensure UTME score meets course cutoffs (e.g., {', '.join([f'{k}: {v}' for k, v in st.session_state.cutoff_marks.items()])})",
-                "Verify 5+ O'Level subjects with grades C6 or better for required subjects",
-                f"Select relevant UTME subjects: {parsed_req}"
-            ]
+            'predicted_program': 'UNASSIGNED',
+            'reason': 'No eligible courses found based on your scores and subjects.',
+            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met'],
+            'all_eligible': pd.DataFrame(),
+            'score': 0,
+            'interest_alignment': False
         }
-    best_course = eligible_courses.loc[eligible_courses["score"].idxmax()]
-    logger.info(f"Best course: {best_course['course']}, Score: {best_course['score']:.2f}")
+
+    eligible_df = pd.DataFrame(eligible_courses)
+    features = pd.DataFrame({
+        'utme_score': [utme_score / 400] * len(eligible_df),
+        'olevel_avg': [eligible_df['olevel_pass_rate'].mean()] * len(eligible_df),
+        'interest_match': eligible_df['interest_score'],
+        'learning_style_score': eligible_df['learning_style_score'],
+        'diversity_score': eligible_df['diversity_score']
+    })
+
+    probs = model.predict_proba(features)
+    predicted_indices = np.argmax(probs, axis=1)
+    predicted_courses = label_encoder.inverse_transform(predicted_indices)
+    scores = probs[np.arange(len(probs)), predicted_indices]
+
+    eligible_df['score'] = scores
+    eligible_df['predicted_course'] = predicted_courses
+    eligible_df = eligible_df[eligible_df['predicted_course'] != 'UNASSIGNED']
+    
+    if eligible_df.empty:
+        return {
+            'predicted_program': 'UNASSIGNED',
+            'reason': 'No eligible courses predicted by the model.',
+            'suggestions': ['Improve UTME score', 'Ensure required O-level subjects are met'],
+            'all_eligible': pd.DataFrame(),
+            'score': 0,
+            'interest_alignment': False
+        }
+
+    eligible_df = eligible_df.sort_values(by='score', ascending=False)
+    top_course = eligible_df.iloc[0]['course']
+    top_score = eligible_df.iloc[0]['score']
+    interest_alignment = eligible_df.iloc[0]['interest_score'] > 0.1
+
     return {
-        "predicted_program": best_course["course"],
-        "score": best_course["score"],
-        "reason": "Best match based on ML prediction and rule-based eligibility",
-        "all_eligible": eligible_courses.sort_values("score", ascending=False),
-        "interest_alignment": best_course["interest_weight"] > 0
+        'predicted_program': top_course,
+        'reason': f"Eligible for {top_course} based on ML prediction and eligibility criteria.",
+        'all_eligible': eligible_df,
+        'score': top_score,
+        'interest_alignment': interest_alignment
     }
 
-def run_intelligent_admission_algorithm_v2(students, course_capacities):
-    admission_results = []
-    for student in students:
-        prediction = predict_placement_enhanced(
-            student['utme_score'],
-            student['olevel_subjects'],
-            student['utme_subjects'],
-            student['interests'],
-            student['learning_style'],
-            student['state_of_origin'],
-            student['gender']
-        )
-        status = "ADMITTED" if prediction['predicted_program'] != "UNASSIGNED" else "NOT_ADMITTED"
-        admitted_course = prediction['predicted_program']
-        admission_type = "Merit" if status == "ADMITTED" and student['preferred_course'] == admitted_course else "Alternative" if status == "ADMITTED" else "None"
-        admission_results.append({
-            'student_id': student['student_id'],
-            'name': student['name'],
-            'admitted_course': admitted_course,
-            'status': status,
-            'admission_type': admission_type,
-            'score': prediction['score'],
-            'rank': 1,
-            'reason': prediction['reason'],
-            'original_preference': student['preferred_course'],
-            'recommendation_reason': "ML-based prediction" if status == "ADMITTED" else "",
-            'available_alternatives': len(prediction['all_eligible']) - 1 if not prediction['all_eligible'].empty else 0,
-            'suggested_alternatives': prediction['all_eligible']['course'].tolist()[1:] if len(prediction['all_eligible']) > 1 else []
-        })
-    return admission_results
-
-async def process_csv_applications(df, course_capacities, progress_callback=None):
-    logger.info("Starting CSV processing: %s rows", len(df))
-    required_columns = [
-        'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
-        'interests', 'learning_style', 'state_of_origin', 'gender',
-        'english_language_grade', 'mathematics_grade'
-    ]
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        logger.error("Missing required columns in CSV: %s", missing_columns)
-        return [], pd.DataFrame(), [{'row': 0, 'student_id': 'N/A', 'error': f"Missing columns: {', '.join(missing_columns)}"}]
-
-    students = []
-    eligible_courses_list = []
-    invalid_rows = []
-    total_rows = len(df)
-
-    for index, row in df.iterrows():
-        try:
-            logger.debug("Processing row %s, student_id: %s", index + 2, row.get('student_id', 'Unknown'))
-            utme_subjects = (
-                [s.strip() for s in row['utme_subjects'].split(',')]
-                if pd.notna(row['utme_subjects']) and row['utme_subjects'].strip()
-                else []
-            )
-            if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
-                logger.warning("Invalid UTME subjects for student %s at row %s: %s",
-                              row.get('student_id', 'Unknown'), index + 2, utme_subjects)
-                invalid_rows.append({'row': index + 2, 'student_id': row.get('student_id', 'Unknown'), 'error': 'Invalid UTME subjects'})
-                continue
-
-            interests = (
-                [i.strip() for i in row['interests'].split(',')]
-                if pd.notna(row['interests']) and row['interests'].strip()
-                else []
-            )
-
-            olevel_subjects = {}
-            for subject in ['english_language_grade', 'mathematics_grade', 'physics_grade',
-                          'chemistry_grade', 'biology_grade', 'economics_grade']:
-                if subject in row and pd.notna(row[subject]) and row[subject] in grade_map:
-                    subject_name = subject.replace('_grade', '').replace('_', ' ').title()
-                    olevel_subjects[subject_name] = grade_map[row[subject]]
-            if len(olevel_subjects) < 5 or 'English Language' not in olevel_subjects or 'Mathematics' not in olevel_subjects:
-                logger.warning("Insufficient or invalid O'Level subjects for student %s at row %s: %s",
-                              row.get('student_id', 'Unknown'), index + 2, olevel_subjects)
-                invalid_rows.append({'row': index + 2, 'student_id': row.get('student_id', 'Unknown'), 'error': 'Invalid O\'Level subjects'})
-                continue
-
-            if pd.isna(row['student_id']) or not row['student_id']:
-                logger.warning("Missing student_id at row %s", index + 2)
-                invalid_rows.append({'row': index + 2, 'student_id': 'Unknown', 'error': 'Missing student_id'})
-                continue
-            if pd.isna(row['name']) or not row['name'].strip():
-                logger.warning("Missing name for student %s at row %s", row['student_id'], index + 2)
-                invalid_rows.append({'row': index + 2, 'student_id': row['student_id'], 'error': 'Missing name'})
-                continue
-            if pd.isna(row['utme_score']) or row['utme_score'] <= 0:
-                logger.warning("Invalid UTME score for student %s at row %s: %s",
-                              row.get('student_id', 'Unknown'), index + 2, row['utme_score'])
-                invalid_rows.append({'row': index + 2, 'student_id': row['student_id'], 'error': 'Invalid UTME score'})
-                continue
-            if pd.isna(row['preferred_course']) or row['preferred_course'] not in course_names:
-                logger.warning("Invalid preferred course for student %s at row %s: %s",
-                              row.get('student_id', 'Unknown'), index + 2, row['preferred_course'])
-                invalid_rows.append({'row': index + 2, 'student_id': row['student_id'], 'error': 'Invalid preferred course'})
-                continue
-            if pd.isna(row['learning_style']) or row['learning_style'] not in learning_styles:
-                logger.warning("Invalid learning style for student %s at row %s: %s",
-                              row.get('student_id', 'Unknown'), index + 2, row['learning_style'])
-                invalid_rows.append({'row': index + 2, 'student_id': row['student_id'], 'error': 'Invalid learning style'})
-                continue
-            if pd.isna(row['state_of_origin']) or row['state_of_origin'] not in NIGERIAN_STATES:
-                logger.warning("Invalid state of origin for student %s at row %s: %s",
-                              row.get('student_id', 'Unknown'), index + 2, row['state_of_origin'])
-                invalid_rows.append({'row': index + 2, 'student_id': row['student_id'], 'error': 'Invalid state of origin'})
-                continue
-            if pd.isna(row['gender']) or row['gender'] not in ['Male', 'Female', 'Other']:
-                logger.warning("Invalid gender for student %s at row %s: %s",
-                              row.get('student_id', 'Unknown'), index + 2, row['gender'])
-                invalid_rows.append({'row': index + 2, 'student_id': row['student_id'], 'error': 'Invalid gender'})
-                continue
-
-            student = {
-                'student_id': str(row['student_id']),
-                'name': row['name'].strip(),
-                'utme_score': float(row['utme_score']),
-                'preferred_course': row['preferred_course'].strip(),
-                'utme_subjects': utme_subjects,
-                'interests': interests,
-                'learning_style': row['learning_style'].strip(),
-                'state_of_origin': row['state_of_origin'].strip(),
-                'gender': row['gender'].strip(),
-                'olevel_subjects': olevel_subjects
-            }
-            students.append(student)
-
-            prediction = predict_placement_enhanced(
-                student['utme_score'],
-                student['olevel_subjects'],
-                student['utme_subjects'],
-                student['interests'],
-                student['learning_style'],
-                student['state_of_origin'],
-                student['gender']
-            )
-            if 'all_eligible' in prediction and not prediction['all_eligible'].empty:
-                eligible_df = prediction['all_eligible'][['course', 'score', 'interest_weight', 'diversity_score']].copy()
-                eligible_df['student_id'] = student['student_id']
-                eligible_df['name'] = student['name']
-                eligible_courses_list.append(eligible_df)
-            else:
-                eligible_courses_list.append(pd.DataFrame([{
-                    'student_id': student['student_id'],
-                    'name': student['name'],
-                    'course': 'NONE',
-                    'score': 0.0,
-                    'interest_weight': 0.0,
-                    'diversity_score': 0.0
-                }]))
-            logger.debug("Completed processing for student %s", student['student_id'])
-
-            if progress_callback:
-                progress_callback((index + 1) / total_rows)
-
-        except Exception as e:
-            logger.error("Error processing row %s for student %s: %s", index + 2, row.get('student_id', 'Unknown'), str(e))
-            logger.error(traceback.format_exc())
-            invalid_rows.append({'row': index + 2, 'student_id': row.get('student_id', 'Unknown'), 'error': str(e)})
-            continue
-
-    if invalid_rows:
-        logger.info("Invalid rows detected: %s", len(invalid_rows))
-
-    if not students:
-        logger.error("No valid student records found in CSV after processing")
-        return [], pd.DataFrame(), invalid_rows
-
-    try:
-        logger.info("Running admission algorithm for %s students", len(students))
-        admission_results = run_intelligent_admission_algorithm_v2(students, course_capacities)
-        eligible_courses_df = pd.concat(eligible_courses_list, ignore_index=True) if eligible_courses_list else pd.DataFrame()
-        logger.info("Batch processing completed: %s results generated, %s eligible courses records",
-                    len(admission_results), len(eligible_courses_df))
-        return admission_results, eligible_courses_df, invalid_rows
-    except Exception as e:
-        logger.error("Error in batch admission processing: %s", str(e))
-        logger.error(traceback.format_exc())
-        return [], pd.DataFrame(), invalid_rows
-
-# --- Part 3: UI and Main Function ---
-async def process_with_timeout(coro, timeout=300):
-    try:
-        return await asyncio.wait_for(coro, timeout=timeout)
-    except asyncio.TimeoutError:
-        logger.error("Processing timed out after %s seconds", timeout)
-        st.error(f"Processing timed out after {timeout} seconds. Try uploading a smaller CSV or check the logs.")
-        return [], pd.DataFrame(), [{'row': 0, 'student_id': 'N/A', 'error': 'Processing timed out'}]
+# Load data and model
+jamb_data = load_jamb_data()
+neco_data = load_neco_data()
+course_capacities = {course: max(50, int(jamb_data[jamb_data['course'] == course]['total_2017'].sum() / 10)) for course in course_names}
+ELIGIBILITY_MODEL, LABEL_ENCODER = train_eligibility_model()
 
 def main():
-    st.title("🎓 FUTA Intelligent Admission Management System (ML-Based)")
-    st.markdown("Welcome to the Federal University of Technology, Akure Admission Management System. This system uses machine learning models to predict eligibility and course placement scores.")
+    st.set_page_config(page_title="FUTA Intelligent Admission Management System", layout="wide")
+    st.title("FUTA Intelligent Admission Management System")
+    st.markdown("Welcome to the FUTA Intelligent Admission Management System. Use the tabs below to predict admissions, process batch applications, view analytics, or access help.")
 
-    admin_login()
-
-    if 'form_key_counter' not in st.session_state:
-        st.session_state.form_key_counter = 0
-    if 'uploader_key' not in st.session_state:
-        st.session_state.uploader_key = 0
-
-    tab1, tab2, tab3, tab4 = st.tabs(["Individual Admission", "Batch Processing", "Analytics & Insights", "Help/FAQ"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Individual Admission Prediction",
+        "Batch Admission Processing",
+        "Analytics & Insights",
+        "Help & FAQ"
+    ])
 
     with tab1:
-        if is_admin():
-            st.info("You are logged in as admin. You can edit cutoffs and capacities below.")
-            with st.expander("Edit Course Cutoffs and Capacities (Admin Only)"):
-                for course in course_names:
-                    st.session_state.cutoff_marks[course] = st.number_input(f"Cutoff for {course}", min_value=100, max_value=400, value=st.session_state.cutoff_marks[course], key=f"cutoff_{course}")
-                    st.session_state.course_capacities[course] = st.number_input(f"Capacity for {course}", min_value=1, max_value=1000, value=st.session_state.course_capacities[course], key=f"capacity_{course}")
-                if st.button("Save Admin Settings", key="save_admin_settings"):
-                    st.success("Settings saved. Retrain models for changes to take effect.")
-            if st.button("Retrain Models (Admin)", key="retrain_models"):
-                train_eligibility_model()
-                train_scoring_model()
-                st.success("Models retrained and saved.")
-        with st.expander("Show Model Feature Importances"):
-            st.write("Eligibility Model Feature Importances:")
-            if ELIGIBILITY_MODEL is not None and hasattr(ELIGIBILITY_MODEL, 'feature_importances_'):
-                feat_imp = pd.Series(ELIGIBILITY_MODEL.feature_importances_, index=ELIGIBILITY_FEATURES).sort_values(ascending=False)
-                st.bar_chart(feat_imp.head(15))
-            st.write("Scoring Model Feature Importances:")
-            if SCORING_MODEL is not None and hasattr(SCORING_MODEL, 'feature_importances_'):
-                feat_imp2 = pd.Series(SCORING_MODEL.feature_importances_, index=SCORING_FEATURES).sort_values(ascending=False)
-                st.bar_chart(feat_imp2.head(15))
         st.header("Individual Admission Prediction")
-        form_key = f"individual_prediction_form_{st.session_state.form_key_counter}"
-        if 'last_form_key' not in st.session_state or st.session_state.last_form_key != form_key:
-            st.session_state.last_form_key = form_key
-            st.session_state[f"name_{st.session_state.form_key_counter}"] = ""
-            st.session_state[f"utme_score_{st.session_state.form_key_counter}"] = 0
-            st.session_state[f"utme_subjects_{st.session_state.form_key_counter}"] = ["English Language"]
-            st.session_state[f"interests_{st.session_state.form_key_counter}"] = []
-            for i in range(5):
-                st.session_state[f"olevel_sub_{i}_{st.session_state.form_key_counter}"] = ""
-                st.session_state[f"olevel_grade_{i}_{st.session_state.form_key_counter}"] = "C6"
-        with st.form(form_key, clear_on_submit=True):
-            st.subheader("Candidate Information")
+        st.markdown("Enter your details to predict your admission eligibility and course placement.")
+        st.warning("Select at least 5 O'Level subjects with grades A1 to C6.")
+        
+        with st.form(key=f"admission_form_{st.session_state.form_key_counter}"):
             col1, col2 = st.columns(2)
+            
             with col1:
-                name = st.text_input("Full Name", placeholder="Enter your full name", key=f"name_{st.session_state.form_key_counter}")
-                state = st.selectbox("State of Origin", NIGERIAN_STATES, index=28, key=f"state_{st.session_state.form_key_counter}")
-                gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"gender_{st.session_state.form_key_counter}")
+                name = st.text_input("Full Name")
+                utme_score = st.number_input("UTME Score (0-400)", min_value=0, max_value=400, step=1)
+                preferred_course = st.selectbox("Preferred Course", options=course_names)
+                state = st.selectbox("State of Origin", options=NIGERIAN_STATES)
+                gender = st.selectbox("Gender", options=["Male", "Female"])
+            
             with col2:
-                utme_score = st.number_input("UTME Score", min_value=0, max_value=400, step=1, key=f"utme_score_{st.session_state.form_key_counter}")
-                learning_style = st.selectbox("Learning Style", list(learning_styles.keys()), index=2, key=f"learning_style_{st.session_state.form_key_counter}")
-
-            st.subheader("UTME Subjects")
-            utme_subjects = st.multiselect(
-                "Select 4 UTME Subjects (English Language is mandatory)",
-                common_subjects,
-                max_selections=4,
-                key=f"utme_subjects_{st.session_state.form_key_counter}"
-            )
-            utme_subjects = utme_subjects if utme_subjects is not None else []
-
-            st.subheader("O'Level Results")
-            st.write("Select at least 5 subjects and their grades")
+                utme_subjects = st.multiselect(
+                    "UTME Subjects (Select exactly 4, including English Language)",
+                    options=["English Language", "Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Geography", "Agricultural Science"],
+                    default=["English Language"]
+                )
+                interests = st.multiselect(
+                    "Interests (Select up to 3)",
+                    options=["Technology & Innovation", "Engineering & Design", "Environmental Sciences", "Business & Management", "Health Sciences", "Agriculture & Food Security"],
+                    max_selections=3
+                )
+                learning_style = st.selectbox("Learning Style", options=learning_styles)
+            
+            st.subheader("O'Level Subjects and Grades")
+            st.markdown("Select up to 9 O'Level subjects and their grades.")
             olevel_subjects = {}
-            for i in range(5):
-                col1, col2 = st.columns(2)
-                with col1:
-                    subject = st.selectbox(f"O'Level Subject {i+1}", [""] + common_subjects, key=f"olevel_sub_{i}_{st.session_state.form_key_counter}")
-                with col2:
-                    grade = st.selectbox(f"Grade {i+1}", list(grade_map.keys()), key=f"olevel_grade_{i}_{st.session_state.form_key_counter}")
-                if subject and subject != "":
-                    olevel_subjects[subject] = grade_map[grade]
-
-            st.subheader("Interests")
-            interests = st.multiselect("Select Your Interests", list(interest_categories.keys()), key=f"interests_{st.session_state.form_key_counter}")
-            interests = interests if interests is not None else []
-
+            selected_subjects = st.multiselect(
+                "Select O'Level Subjects (at least 5)",
+                options=olevel_subjects_options,
+                key=f"olevel_subjects_{st.session_state.form_key_counter}"
+            )
+            
+            col_olevel1, col_olevel2 = st.columns(2)
+            for i, subject in enumerate(selected_subjects):
+                col = col_olevel1 if i % 2 == 0 else col_olevel2
+                with col:
+                    grade = st.selectbox(
+                        f"{subject} Grade",
+                        options=["", "A1", "B2", "B3", "C4", "C5", "C6"],
+                        key=f"{subject}_grade_{st.session_state.form_key_counter}"
+                    )
+                    if grade:
+                        olevel_subjects[subject] = grade_map[grade]
+            
             col_submit, col_reset = st.columns(2)
             with col_submit:
                 submit_button = st.form_submit_button("Predict Admission")
@@ -773,7 +317,9 @@ def main():
                             interests,
                             learning_style,
                             state,
-                            gender
+                            gender,
+                            ELIGIBILITY_MODEL,
+                            LABEL_ENCODER
                         )
                         if prediction['predicted_program'] == "UNASSIGNED":
                             st.error(prediction['reason'])
@@ -786,294 +332,523 @@ def main():
                             st.write(f"**Prediction Score**: {prediction['score']:.2f}")
                             st.write(f"**Reason**: {prediction['reason']}")
                             if prediction['interest_alignment']:
-                                st.write("✅ This course aligns well with your interests!")
+                                st.write("✅ This course aligns with your interests!")
                             if not prediction['all_eligible'].empty:
                                 st.subheader("Other Eligible Courses")
                                 st.dataframe(
-                                    prediction['all_eligible'][['course', 'score', 'interest_weight', 'diversity_score']],
+                                    prediction['all_eligible'][['course', 'score', 'interest_score', 'learning_style_score']],
+                                    use_container_width=True,
                                     column_config={
                                         "course": "Course",
-                                        "score": st.column_config.NumberColumn("Prediction Score", format="%.2f"),
-                                        "interest_weight": st.column_config.NumberColumn("Interest Alignment", format="%.2f"),
-                                        "diversity_score": st.column_config.NumberColumn("Diversity Score", format="%.2f")
-                                    },
-                                    hide_index=True
+                                        "score": st.column_config.NumberColumn("Score", format="%.2f"),
+                                        "interest_score": st.column_config.NumberColumn("Interest Score", format="%.2f"),
+                                        "learning_style_score": st.column_config.NumberColumn("Learning Style Score", format="%.2f")
+                                    }
                                 )
-                        st.session_state.form_key_counter += 1
+                                student_data = {
+                                    'name': name,
+                                    'student_id': f"FUTA/{datetime.now().year}/{np.random.randint(1000, 9999)}",
+                                    'admitted_course': prediction['predicted_program'],
+                                    'admission_type': 'Merit' if prediction['predicted_program'] == preferred_course else 'Alternative'
+                                }
+                                pdf_buffer = generate_admission_letter(student_data)
+                                st.download_button(
+                                    label="Download Admission Letter",
+                                    data=pdf_buffer,
+                                    file_name=f"admission_letter_{name.replace(' ', '_')}.pdf",
+                                    mime="application/pdf"
+                                )
                     except Exception as e:
-                        logger.error(f"Error during individual prediction: {str(e)}")
-                        logger.error(traceback.format_exc())
-                        st.error(f"Prediction failed: {str(e)}")
+                        logger.error("Error in prediction: %s", str(e))
+                        st.error("An error occurred during prediction. Please try again.")
+                        st.write(f"Error details: {str(e)}")
+
+        st.write("---")
+        st.info("Use the 'Reset Form' button to clear inputs and start a new prediction.")
+
+    async def process_with_timeout(coro, timeout=300):
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error("Batch processing timed out after %s seconds", timeout)
+            return [], pd.DataFrame(), [{"row": 0, "student_id": "N/A", "error": "Processing timed out"}]
+        except Exception as e:
+            logger.error("Error in process_with_timeout: %s", str(e))
+            return [], pd.DataFrame(), [{"row": 0, "student_id": "N/A", "error": f"Processing error: {str(e)}"}]
+
+    async def process_csv_applications(df, course_capacities, jamb_data, neco_data, update_progress):
+        logger.info("Starting batch processing for %d applications", len(df))
+        required_columns = [
+            'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
+            'interests', 'learning_style', 'state_of_origin', 'gender'
+        ]
+        missing_cols = [col for col in required_columns if col not in df.columns]
+        if missing_cols:
+            error_msg = f"Missing required columns: {', '.join(missing_cols)}"
+            logger.error(error_msg)
+            return [], pd.DataFrame(), [{"row": 0, "student_id": "N/A", "error": error_msg}]
+
+        admission_results = []
+        eligible_courses_list = []
+        invalid_rows = []
+        total_rows = len(df)
+        
+        for idx, row in df.iterrows():
+            try:
+                student_id = row.get('student_id', 'Unknown')
+                name = row.get('name', '').strip()
+                utme_score = row.get('utme_score', 0)
+                preferred_course = row.get('preferred_course', '').strip()
+                utme_subjects = row.get('utme_subjects', '').split(',')
+                utme_subjects = [s.strip() for s in utme_subjects if s.strip()]
+                interests = row.get('interests', '').split(',')
+                interests = [i.strip() for i in interests if i.strip()]
+                learning_style = row.get('learning_style', '').strip()
+                state = row.get('state_of_origin', '').strip()
+                gender = row.get('gender', '').strip()
+
+                olevel_subjects = {}
+                for col in df.columns:
+                    if '_grade' in col:
+                        subject = col.replace('_grade', '').replace('_', ' ').title()
+                        if pd.notna(row[col]) and row[col] in grade_map:
+                            olevel_subjects[subject] = grade_map[row[col]]
+
+                if not name:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid name"})
+                    continue
+                if utme_score <= 0 or utme_score > 400:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid UTME score"})
+                    continue
+                if len(utme_subjects) != 4 or "English Language" not in utme_subjects:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
+                    continue
+                if len(olevel_subjects) < 5:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have at least 5 O'Level subjects"})
+                    continue
+                if preferred_course not in course_names:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid preferred course"})
+                    continue
+                if state not in NIGERIAN_STATES:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid state of origin"})
+                    continue
+                if gender not in ["Male", "Female"]:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid gender"})
+                    continue
+                if learning_style not in learning_styles:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid learning style"})
+                    continue
+
+                prediction = predict_placement_enhanced(
+                    utme_score,
+                    olevel_subjects,
+                    utme_subjects,
+                    interests,
+                    learning_style,
+                    state,
+                    gender,
+                    ELIGIBILITY_MODEL,
+                    LABEL_ENCODER
+                )
+
+                status = "Admitted" if prediction['predicted_program'] != "UNASSIGNED" else "Not Admitted"
+                admission_type = "Merit" if prediction['predicted_program'] == preferred_course else "Alternative" if status == "Admitted" else "N/A"
+                reason = prediction['reason']
+                alternatives = ", ".join(prediction['all_eligible']['course'].tolist()) if not prediction['all_eligible'].empty else "None"
+                suggested_alternatives = ", ".join(prediction['all_eligible']['course'].head(3).tolist()) if not prediction['all_eligible'].empty else "None"
+
+                admission_results.append({
+                    "student_id": student_id,
+                    "name": name,
+                    "admitted_course": prediction['predicted_program'],
+                    "status": status,
+                    "admission_type": admission_type,
+                    "score": prediction['score'],
+                    "rank": prediction['all_eligible'].index[prediction['all_eligible']['course'] == prediction['predicted_program']].tolist()[0] + 1 if status == "Admitted" else 0,
+                    "reason": reason,
+                    "original_preference": preferred_course,
+                    "recommendation_reason": "Best match based on ML prediction" if status == "Admitted" else "N/A",
+                    "available_alternatives": alternatives,
+                    "suggested_alternatives": suggested_alternatives
+                })
+
+                if not prediction['all_eligible'].empty:
+                    for _, eligible_row in prediction['all_eligible'].iterrows():
+                        eligible_courses_list.append({
+                            "student_id": student_id,
+                            "name": name,
+                            "course": eligible_row['course'],
+                            "score": eligible_row['score'],
+                            "interest_score": eligible_row['interest_score'],
+                            "learning_style_score": eligible_row['learning_style_score'],
+                            "diversity_score": eligible_row['diversity_score'],
+                            "olevel_pass_rate": eligible_row['olevel_pass_rate']
+                        })
+
+                await update_progress((idx + 1) / total_rows)
+
+            except Exception as e:
+                logger.error("Error processing row %d: %s", idx + 2, str(e))
+                invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": str(e)})
+
+        eligible_courses_df = pd.DataFrame(eligible_courses_list)
+        return admission_results, eligible_courses_df, invalid_rows
+
+    def create_comprehensive_admission_report(admission_results, input_df, course_capacities):
+        detailed_results = pd.DataFrame(admission_results)
+        total_applicants = len(input_df)
+        admitted = len([r for r in admission_results if r['status'] == "Admitted"])
+        merit_admissions = len([r for r in admission_results if r['admission_type'] == "Merit"])
+        
+        summary_stats = {
+            "Admission Rate": (admitted / total_applicants * 100) if total_applicants > 0 else 0,
+            "Merit Admission Rate": (merit_admissions / admitted * 100) if admitted > 0 else 0,
+            "Alternative Admission Rate": ((admitted - merit_admissions) / admitted * 100) if admitted > 0 else 0
+        }
+        
+        course_breakdown = []
+        for course in course_names:
+            admitted_count = len([r for r in admission_results if r['admitted_course'] == course])
+            scores = [r['score'] for r in admission_results if r['admitted_course'] == course]
+            course_breakdown.append({
+                "admitted_course": course,
+                "Students_Admitted": admitted_count,
+                "Avg_Score": np.mean(scores) if scores else 0,
+                "Min_Score": np.min(scores) if scores else 0,
+                "Max_Score": np.max(scores) if scores else 0,
+                "Capacity": course_capacities.get(course, 50),
+                "Utilization_Rate": (admitted_count / course_capacities.get(course, 50) * 100) if course_capacities.get(course, 50) > 0 else 0
+            })
+        
+        course_breakdown = pd.DataFrame(course_breakdown)
+        return detailed_results, summary_stats, course_breakdown
+
+    def analyze_student_demand(input_df, jamb_data, neco_data):
+        course_demand = {}
+        for course in course_names:
+            faculty = get_course_requirements()[course]['faculty']
+            demand_score = jamb_data[jamb_data['faculty'] == faculty]['total_2017'].sum() / jamb_data['total_2017'].sum() if not jamb_data['total_2017'].empty else 0
+            course_demand[course] = {
+                'demand_score': demand_score,
+                'applicants': len([r for r in input_df.get('preferred_course', []) if r == course])
+            }
+        return course_demand
+
+    def optimize_course_capacities(demand, current_capacities):
+        optimization = {}
+        total_demand = sum(d['demand_score'] for d in demand.values()) or 1
+        total_capacity = sum(current_capacities.values()) or 1
+        
+        for course, data in demand.items():
+            current = current_capacities.get(course, 50)
+            suggested = max(50, int((data['demand_score'] / total_demand) * total_capacity * 1.2))
+            priority = 'High' if data['applicants'] > current else 'Low'
+            optimization[course] = {
+                'current_capacity': current,
+                'suggested_capacity': suggested,
+                'priority': priority
+            }
+        return optimization
+
+    def calculate_capacity_utilization(admission_results, course_capacities):
+        utilization = {}
+        for course in course_names:
+            admitted = len([r for r in admission_results if r['admitted_course'] == course])
+            capacity = course_capacities.get(course, 50)
+            rate = (admitted / capacity * 100) if capacity > 0 else 0
+            status = 'Optimal' if rate <= 100 else 'Overcapacity'
+            utilization[course] = {
+                'Utilization Rate': rate,
+                'Status': status
+            }
+        return utilization
 
     with tab2:
         st.header("Batch Admission Processing")
-        st.write("Upload a CSV file with student data to process admissions in bulk.")
-        st.markdown("""
-            **Expected CSV Format**:
-            - Columns: `student_id`, `name`, `utme_score`, `preferred_course`, `utme_subjects` (comma-separated, e.g., "English Language,Mathematics,Physics,Chemistry"),
-              `interests` (comma-separated, e.g., "Problem Solving & Logic,Technology & Innovation"),
-              `learning_style`, `state_of_origin`, `gender`, and O'Level grades (e.g., `english_language_grade`, `mathematics_grade`, `physics_grade`).
-            - Ensure at least 5 O'Level subjects with valid grades (A1, B2, B3, C4, C5, C6).
-        """)
-        uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key=f"batch_uploader_{st.session_state.uploader_key}")
+        st.markdown("Upload a CSV file to process multiple admission applications at once.")
+        
+        uploaded_file = st.file_uploader(
+            "Upload CSV File",
+            type=["csv"],
+            key=f"batch_uploader_{st.session_state.uploader_key}"
+        )
+        
         if uploaded_file:
-            with st.spinner("Validating CSV file..."):
-                try:
-                    df = pd.read_csv(uploaded_file)
-                    logger.info("CSV file uploaded: %s rows, columns: %s", len(df), list(df.columns))
-                    if df.empty:
-                        st.error("The uploaded CSV file is empty.")
-                        logger.error("Empty CSV file uploaded")
-                    else:
-                        required_columns = [
-                            'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
-                            'interests', 'learning_style', 'state_of_origin', 'gender',
-                            'english_language_grade', 'mathematics_grade'
-                        ]
-                        missing_columns = [col for col in required_columns if col not in df.columns]
-                        if missing_columns:
-                            st.error(f"Missing required columns: {', '.join(missing_columns)}")
-                            logger.error("Missing required columns: %s", missing_columns)
-                        else:
-                            progress_bar = st.progress(0)
-                            progress_text = st.empty()
-                            def update_progress(progress):
-                                progress_bar.progress(min(progress, 1.0))
-                                progress_text.text(f"Processing: {int(progress * 100)}%")
-
-                            course_capacities = get_dynamic_course_capacities(df)
-                            logger.info("Starting async CSV processing")
-                            admission_results, eligible_courses_df, invalid_rows = asyncio.run(
-                                process_with_timeout(
-                                    process_csv_applications(df, course_capacities, update_progress)
-                                )
-                            )
-                            logger.info("Async CSV processing completed")
-
-                            if invalid_rows:
-                                st.warning(f"Skipped {len(invalid_rows)} invalid rows. Check details below.")
-                                st.dataframe(
-                                    pd.DataFrame(invalid_rows),
-                                    column_config={
-                                        'row': 'Row Number',
-                                        'student_id': 'Student ID',
-                                        'error': 'Error Message'
-                                    },
-                                    hide_index=True
-                                )
-
-                            if not admission_results:
-                                st.error("No admission results generated. Check the CSV file for errors and refer to the logs for details.")
-                            else:
-                                detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
-                                
-                                st.subheader("Admission Summary")
-                                for key, value in summary_stats.items():
-                                    st.write(f"**{key}**: {value}")
-                                
-                                st.subheader("Course-wise Admission Breakdown")
-                                st.dataframe(
-                                    course_breakdown,
-                                    column_config={
-                                        "admitted_course": "Course",
-                                        "Students_Admitted": st.column_config.NumberColumn("Students Admitted"),
-                                        "Avg_Score": st.column_config.NumberColumn("Average Score", format="%.2f"),
-                                        "Min_Score": st.column_config.NumberColumn("Minimum Score", format="%.2f"),
-                                        "Max_Score": st.column_config.NumberColumn("Maximum Score", format="%.2f"),
-                                        "Capacity": st.column_config.NumberColumn("Capacity"),
-                                        "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f")
-                                    },
-                                    hide_index=True
-                                )
-                                
-                                st.subheader("Detailed Admission Results")
-                                st.dataframe(
-                                    detailed_results,
-                                    column_config={
-                                        "student_id": "Student ID",
-                                        "name": "Name",
-                                        "utme_score": st.column_config.NumberColumn("UTME Score"),
-                                        "preferred_course": "Preferred Course",
-                                        "admitted_course": "Admitted Course",
-                                        "status": "Admission Status",
-                                        "score": st.column_config.NumberColumn("Score", format="%.2f"),
-                                        "rank": st.column_config.NumberColumn("Rank"),
-                                        "admission_type": "Admission Type",
-                                        "reason": "Reason",
-                                        "original_preference": "Original Preference",
-                                        "recommendation_reason": "Recommendation Reason",
-                                        "available_alternatives": st.column_config.NumberColumn("Available Alternatives"),
-                                        "suggested_alternatives": "Suggested Alternatives"
-                                    },
-                                    hide_index=True
-                                )
-                                
-                                recommended_courses_df = detailed_results[['student_id', 'name', 'admitted_course', 'status', 'suggested_alternatives']].copy()
-                                recommended_courses_df['recommended_course'] = recommended_courses_df.apply(
-                                    lambda row: row['admitted_course'] if row['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']
-                                    else (row['suggested_alternatives'][0] if row['suggested_alternatives'] else 'NONE'),
-                                    axis=1
-                                )
-                                
-                                excel_buffer = io.BytesIO()
-                                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                                    eligible_courses_df.to_excel(writer, sheet_name='Eligible Courses', index=False)
-                                    recommended_courses_df.to_excel(writer, sheet_name='Recommended Courses', index=False)
-                                excel_buffer.seek(0)
-                                
-                                st.subheader("Download Course Eligibility Report")
-                                st.download_button(
-                                    label="Download Course Eligibility Excel Report",
-                                    data=excel_buffer,
-                                    file_name=f"course_eligibility_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                )
-                                
-                                st.subheader("Download Admission Letters")
-                                for result in admission_results:
-                                    if result['status'] in ['ADMITTED', 'ALTERNATIVE_ADMISSION']:
-                                        student_data = {
-                                            'name': result.get('name', 'Student'),
-                                            'student_id': result['student_id'],
-                                            'admitted_course': result['admitted_course'],
-                                            'admission_type': result['admission_type'],
-                                            'status': result['status'],
-                                            'original_preference': result.get('original_preference', ''),
-                                            'recommendation_reason': result.get('recommendation_reason', '')
-                                        }
-                                        pdf_buffer = generate_admission_letter(student_data)
-                                        st.download_button(
-                                            label=f"Download Admission Letter for {student_data['name']} ({student_data['student_id']})",
-                                            data=pdf_buffer,
-                                            file_name=f"admission_letter_{student_data['student_id']}.pdf",
-                                            mime="application/pdf"
-                                        )
-                                
-                                csv_buffer = io.StringIO()
-                                detailed_results.to_csv(csv_buffer, index=False)
-                                csv_buffer.seek(0)
-                                st.download_button(
-                                    label="Download Full Admission Report",
-                                    data=csv_buffer.getvalue(),
-                                    file_name=f"admission_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                    mime="text/csv"
-                                )
-                except Exception as e:
-                    logger.error(f"Error processing CSV file: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    st.error(f"Error processing CSV file: {str(e)}. Please check the file format and refer to the logs for details.")
-                finally:
+            try:
+                df = pd.read_csv(uploaded_file)
+                if df.empty:
+                    st.error("Uploaded CSV is empty. Please upload a valid CSV file.")
                     st.session_state.uploader_key += 1
-            st.session_state.uploader_key += 1
-        else:
-            st.info("Please upload a CSV file to process admissions.")
+                    st.rerun()
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                async def update_progress(progress):
+                    progress_bar.progress(min(1.0, progress))  # Ensure progress doesn't exceed 1.0
+                    status_text.text(f"Processing: {int(progress * 100)}% complete")
+                
+                admission_results, eligible_courses_df, invalid_rows = asyncio.run(process_with_timeout(
+                    process_csv_applications(df, course_capacities, jamb_data, neco_data, update_progress),
+                    timeout=300
+                ))                
+                st.session_state.batch_results = admission_results
+                st.session_state.eligible_courses_df = eligible_courses_df
+                st.session_state.invalid_rows = invalid_rows
+                
+                if admission_results:
+                    st.success(f"Processed {len(admission_results)} applications successfully!")
+                    detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(admission_results, df, course_capacities)
+                    
+                    st.subheader("Summary Statistics")
+                    for key, value in summary_stats.items():
+                        st.write(f"**{key}**: {value:.2f}%")
+                    
+                    st.subheader("Course Breakdown")
+                    st.dataframe(
+                        course_breakdown,
+                        use_container_width=True,
+                        column_config={
+                            'admitted_course': "Course",
+                            'Students_Admitted': "Students Admitted",
+                            'Avg_Score': st.column_config.NumberColumn("Average Score", format="%.2f"),
+                            'Min_Score': st.column_config.NumberColumn("Min Score", format="%.2f"),
+                            'Max_Score': st.column_config.NumberColumn("Max Score", format="%.2f"),
+                            'Capacity': "Capacity",
+                            'Utilization_Rate': st.column_config.NumberColumn("Utilization Rate", format="%.2f%")
+                        }
+                    )
+                    
+                    st.subheader("Detailed Results")
+                    st.dataframe(
+                        detailed_results,
+                        use_container_width=True,
+                        column_config={
+                            'student_id': "Student ID",
+                            'name': "Name",
+                            'admitted_course': "Admitted Course",
+                            'status': "Status",
+                            'admission_type': "Admission Type",
+                            'score': st.column_config.NumberColumn("Score", format="%.2f"),
+                            'rank': "Rank",
+                            'reason': "Reason",
+                            'original_preference': "Original Preference",
+                            'recommendation_reason': "Recommendation Reason",
+                            'available_alternatives': "Available Alternatives",
+                            'suggested_alternatives': "Suggested Alternatives"
+                        }
+                    )
+                    
+                    csv_buffer = io.StringIO()
+                    detailed_results.to_csv(csv_buffer, index=False)
+                    st.download_button(
+                        label="Download Detailed Results",
+                        data=csv_buffer.getvalue(),
+                        file_name="batch_admission_results.csv",
+                        mime="text/csv"
+                    )
+                    
+                    if not eligible_courses_df.empty:
+                        st.subheader("Eligible Courses for All Applicants")
+                        st.dataframe(
+                            eligible_courses_df,
+                            use_container_width=True,
+                            column_config={
+                                'student_id': "Student ID",
+                                'name': "Name",
+                                'course': "Course",
+                                'score': st.column_config.NumberColumn("Score", format="%.2f"),
+                                'interest_score': st.column_config.NumberColumn("Interest Score", format="%.2f"),
+                                'learning_style_score': st.column_config.NumberColumn("Learning Style Score", format="%.2f"),
+                                'diversity_score': st.column_config.NumberColumn("Diversity Score", format="%.2f"),
+                                'olevel_pass_rate': st.column_config.NumberColumn("O'Level Pass Rate", format="%.2f")
+                            }
+                        )
+                        eligible_csv_buffer = io.StringIO()
+                        eligible_courses_df.to_csv(eligible_csv_buffer, index=False)
+                        st.download_button(
+                            label="Download Eligible Courses",
+                            data=eligible_csv_buffer.getvalue(),
+                            file_name="eligible_courses.csv",
+                            mime="text/csv"
+                        )
+                    
+                    if invalid_rows:
+                        st.subheader("Invalid Rows")
+                        invalid_df = pd.DataFrame(invalid_rows)
+                        st.dataframe(
+                            invalid_df,
+                            use_container_width=True,
+                            column_config={
+                                'row': "Row Number",
+                                'student_id': "Student ID",
+                                'error': "Error Message"
+                            }
+                        )
+                        invalid_csv_buffer = io.StringIO()
+                        invalid_df.to_csv(invalid_csv_buffer, index=False)
+                        st.download_button(
+                            label="Download Invalid Rows Report",
+                            data=invalid_csv_buffer.getvalue(),
+                            file_name="invalid_rows.csv",
+                            mime="text/csv"
+                        )
+                
+                else:
+                    st.error("No valid applications processed. Check the invalid rows report.")
+                    if invalid_rows:
+                        invalid_df = pd.DataFrame(invalid_rows)
+                        st.dataframe(
+                            invalid_df,
+                            use_container_width=True,
+                            column_config={
+                                'row': "Row Number",
+                                'student_id': "Student ID",
+                                'error': "Error Message"
+                            }
+                        )
+                        invalid_csv_buffer = io.StringIO()
+                        invalid_df.to_csv(invalid_csv_buffer, index=False)
+                        st.download_button(
+                            label="Download Invalid Rows Report",
+                            data=invalid_csv_buffer.getvalue(),
+                            file_name="invalid_rows.csv",
+                            mime="text/csv"
+                        )
+                
+                st.session_state.uploader_key += 1
+                st.rerun()
+                
+            except Exception as e:
+                logger.error("Error processing CSV: %s", str(e))
+                st.error(f"Error processing CSV: {str(e)}")
+                st.session_state.uploader_key += 1
+                st.rerun()
 
     with tab3:
         st.header("Analytics & Insights")
-        st.write("Upload a CSV file to analyze student demand and capacity utilization.")
-        analytics_file = st.file_uploader("Choose a CSV file for analytics", type="csv", key=f"analytics_uploader_{st.session_state.uploader_key}")
-        if analytics_file:
-            with st.spinner("Processing analytics..."):
-                try:
-                    df = pd.read_csv(analytics_file)
-                    logger.info("Analytics CSV file uploaded: %s rows, columns: %s", len(df), list(df.columns))
-                    if df.empty:
-                        st.error("The uploaded CSV file is empty.")
-                        logger.error("Empty CSV file uploaded for analytics")
-                    else:
-                        course_capacities = get_dynamic_course_capacities(df)
-                        demand_analysis = analyze_student_demand(df)
-                        st.subheader("Student Demand Analysis")
-                        demand_df = pd.DataFrame.from_dict(demand_analysis, orient='index').reset_index()
-                        demand_df.columns = ['Course', 'Primary Demand', 'Secondary Demand', 'Total Estimated Demand', 'Demand Category']
-                        st.dataframe(
-                            demand_df,
-                            column_config={
-                                "Course": "Course",
-                                "Primary_Demand": st.column_config.NumberColumn("Primary Demand"),
-                                "Secondary_Demand": st.column_config.NumberColumn("Secondary Demand"),
-                                "Total_Estimated_Demand": st.column_config.NumberColumn("Total Estimated Demand"),
-                                "Demand_Category": "Demand Category"
-                            },
-                            hide_index=True
-                        )
-                        st.subheader("Capacity Optimization Suggestions")
-                        capacity_suggestions = optimize_course_capacities(
-                            {k: v['total_estimated_demand'] for k, v in demand_analysis.items()},
-                            course_capacities
-                        )
-                        if capacity_suggestions:
-                            suggestions_df = pd.DataFrame.from_dict(capacity_suggestions, orient='index').reset_index()
-                            suggestions_df.columns = ['Course', 'Current Capacity', 'Suggested Capacity', 'Reason', 'Priority']
-                            st.dataframe(
-                                suggestions_df,
-                                column_config={
-                                    "Course": "Course",
-                                    "Current_Capacity": st.column_config.NumberColumn("Current Capacity"),
-                                    "Suggested_Capacity": st.column_config.NumberColumn("Suggested Capacity"),
-                                    "Reason": "Reason",
-                                    "Priority": "Priority"
-                                },
-                                hide_index=True
-                            )
-                        if 'admitted_course' in df.columns:
-                            st.subheader("Capacity Utilization")
-                            admission_results = run_intelligent_admission_algorithm_v2(df.to_dict('records'), course_capacities)
-                            utilization_stats = calculate_capacity_utilization(admission_results, course_capacities)
-                            utilization_df = pd.DataFrame.from_dict(utilization_stats, orient='index').reset_index()
-                            utilization_df.columns = ['Course', 'Capacity', 'Admitted', 'Available', 'Utilization Rate', 'Status']
-                            st.dataframe(
-                                utilization_df,
-                                column_config={
-                                    "Course": "Course",
-                                    "Capacity": st.column_config.NumberColumn("Capacity"),
-                                    "Admitted": st.column_config.NumberColumn("Admitted"),
-                                    "Available": st.column_config.NumberColumn("Available"),
-                                    "Utilization_Rate": st.column_config.NumberColumn("Utilization Rate (%)", format="%.1f"),
-                                    "Status": "Status"
-                                },
-                                hide_index=True
-                            )
-                            st.subheader("Utilization Visualization")
-                            fig = px.bar(
-                                utilization_df,
-                                x='Course',
-                                y='Utilization_Rate',
-                                color='Status',
-                                title='Course Capacity Utilization',
-                                labels={'Utilization_Rate': 'Utilization Rate (%)'},
-                                height=600
-                            )
-                            fig.update_layout(xaxis_tickangle=45)
-                            st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    logger.error(f"Error in analytics processing: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    st.error(f"Error processing analytics: {str(e)}. Please check the file format and refer to the logs for details.")
+        st.markdown("Visualize admission trends and insights based on JAMB and NECO data.")
+        
+        admission_results = st.session_state.batch_results or []
+        demand = analyze_student_demand(pd.DataFrame(), jamb_data, neco_data)
+        capacity_optimization = optimize_course_capacities(demand, course_capacities)
+        capacity_utilization = calculate_capacity_utilization(admission_results, course_capacities)
+        
+        st.subheader("Admission Trends by Faculty")
+        if admission_results:
+            faculty_counts = pd.DataFrame([
+                {
+                    'Faculty': get_course_requirements()[course]['faculty'],
+                    'Admitted': sum(1 for r in admission_results if r['admitted_course'] == course)
+                } for course in course_names
+            ]).groupby('Faculty').sum().reset_index()
+            if not faculty_counts.empty:
+                fig = px.bar(faculty_counts, x='Faculty', y='Admitted', title="Admitted Students by Faculty")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No faculty data available for visualization.")
+        else:
+            st.warning("No admission results available for visualization.")
+        
+        st.subheader("NECO Pass Rates by State and Gender")
+        neco_df = load_neco_data()
+        if not neco_df.empty:
+            neco_melted = neco_df.melt(id_vars=['state'], value_vars=['male_pass_rate', 'female_pass_rate'], 
+                                       var_name='Gender', value_name='Pass Rate')
+            neco_melted['Gender'] = neco_melted['Gender'].replace({'male_pass_rate': 'Male', 'female_pass_rate': 'Female'})
+            if not neco_melted.empty:
+                fig = px.bar(neco_melted, x='state', y='Pass Rate', color='Gender', barmode='group', title="NECO Pass Rates by State and Gender")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No NECO data available for visualization.")
+        else:
+            st.warning("No NECO data available for visualization.")
+        
+        st.subheader("Faculty Capacity Utilization")
+        if admission_results:
+            utilization_df = pd.DataFrame([
+                {
+                    'Course': course,
+                    'Utilization Rate': data['Utilization Rate'],
+                    'Status': data['Status']
+                } for course, data in capacity_utilization.items()
+            ])
+            if not utilization_df.empty:
+                fig = px.bar(utilization_df, x='Course', y='Utilization Rate', color='Status', 
+                             title="Course Capacity Utilization", color_discrete_map={'Optimal': 'green', 'Overcapacity': 'red'})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No utilization data available for visualization.")
+        else:
+            st.warning("No admission results available for visualization.")
+        
+        st.subheader("Capacity Optimization Suggestions")
+        optimization_df = pd.DataFrame([
+            {
+                'Course': course,
+                'Current Capacity': data['current_capacity'],
+                'Suggested Capacity': data['suggested_capacity'],
+                'Priority': data['priority']
+            } for course, data in capacity_optimization.items()
+        ])
+        if not optimization_df.empty:
+            st.dataframe(
+                optimization_df,
+                use_container_width=True,
+                column_config={
+                    'Course': "Course",
+                    'Current Capacity': "Current Capacity",
+                    'Suggested Capacity': "Suggested Capacity",
+                    'Priority': "Priority"
+                }
+            )
+        else:
+            st.warning("No optimization data available.")
+
     with tab4:
         st.header("Help & FAQ")
         st.markdown("""
-        **What is this system?**
-        
-        This is an intelligent, machine learning-based admission management system for FUTA. It predicts course placements for students based on UTME score, O'Level grades, UTME subjects, interests, learning style, state of origin, and gender.
-        
-        **How does it work?**
-        
-        - Uses two ML models: RandomForestClassifier for eligibility (binary) and RandomForestRegressor for scoring (continuous 0-1).
-        - Models are trained on synthetic data with realistic distributions and noise.
-        - The system supports individual and batch admission predictions, analytics, and admin controls.
-        
-        **Admin Features:**
-        - Login as admin (password: `futa2025`) to edit course cutoffs/capacities and retrain models.
-        - View feature importances for transparency.
-        
-        **Data Requirements:**
-        - For batch processing, upload a CSV with columns: student_id, name, utme_score, preferred_course, utme_subjects, interests, learning_style, state_of_origin, gender, and O'Level grades.
-        
-        **Troubleshooting:**
-        - If you see 'No eligible courses', check your UTME score, O'Level grades, and subject selections.
-        - For errors, check the logs or contact the admin.
+        ### Frequently Asked Questions
+        **Q: What is this system?**
+        A: This is an ML-based admission prediction system for FUTA, using JAMB 2017-2018 and NECO 2016 data to predict eligibility and placement for 49 courses.
+
+        **Q: How do I use the Individual Admission tab?**
+        A: Enter your details, including UTME score, subjects, O'Level grades (at least 5 subjects), interests, and learning style. Submit to get a prediction and download an admission letter if eligible.
+
+        **Q: What format should the CSV file have for batch processing?**
+        A: The CSV must include the following columns:
+        - `student_id`: Unique identifier
+        - `name`: Full name
+        - `utme_score`: UTME score (0-400)
+        - `preferred_course`: Chosen course (must match one of the 49 FUTA courses)
+        - `utme_subjects`: Comma-separated list of 4 subjects (including English Language)
+        - `interests`: Comma-separated list of interests
+        - `learning_style`: One of Analytical Thinker, Visual Learner, Practical Learner, Conceptual Learner, Social Learner
+        - `state_of_origin`: One of the 37 Nigerian states
+        - `gender`: Male or Female
+        - Subject grades (e.g., `english_language_grade`, `mathematics_grade`) with values A1, B2, B3, C4, C5, or C6
+
+        **Sample CSV:**
+        ```csv
+        student_id,name,utme_score,preferred_course,utme_subjects,interests,learning_style,state_of_origin,gender,english_language_grade,mathematics_grade,physics_grade,chemistry_grade,biology_grade
+        001,John Doe,220,Computer Science,English Language,Mathematics,Physics,Chemistry,Technology & Innovation,Analytical Thinker,Lagos,Male,B2,B3,C4,C5,C6
+        ```
+
+        **Q: How are predictions made?**
+        A: The system uses a Random Forest model trained on synthetic data, combined with rule-based eligibility checks, considering UTME scores, O'Level grades, interests, learning styles, and diversity factors.
+
+        **Q: What if I encounter an error?**
+        A: Check the error message for details. For batch processing, download the invalid rows report to identify issues. Ensure all required fields are correctly formatted.
+
+        **Q: Can I reset the form?**
+        A: Yes, use the 'Reset Form' button in the Individual Admission tab to clear inputs and start over.
+
+        **Q: How are course capacities determined?**
+        A: Capacities are dynamically calculated based on JAMB faculty demand, with a minimum of 50 slots per course, adjusted by faculty admission proportions.
         """)
 
-if __name__ == "__main__":
+async def main_async():
     main()
+
+if __name__ == "__main__":
+    asyncio.run(main_async())
