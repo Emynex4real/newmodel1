@@ -956,245 +956,327 @@ async def main():
         st.header("Batch Admission Processing")
         st.markdown("Upload a CSV file to process multiple admission applications at once, or download a sample CSV to test the system.")
 
-        # Download button for sample CSV (outside any form)
-        st.download_button(
-            label="Download Sample CSV (50 Students)",
-            data=sample_csv_data,
-            file_name="sample_students.csv",
-            mime="text/csv",
-            key="sample_csv_download"
-        )
+    # Download button for sample CSV (outside any form)
+    st.download_button(
+        label="Download Sample CSV (50 Students)",
+        data=sample_csv_data,
+        file_name="sample_students.csv",
+        mime="text/csv",
+        key="sample_csv_download"
+    )
 
-        # File uploader for batch processing
-        uploaded_file = st.file_uploader(
-            "Upload CSV File",
-            type=["csv"],
-            key=f"batch_uploader_{st.session_state.uploader_key}"
-        )
+    # File uploader for batch processing
+    uploaded_file = st.file_uploader(
+        "Upload CSV File",
+        type=["csv"],
+        key=f"batch_uploader_{st.session_state.uploader_key}"
+    )
 
-        if uploaded_file:
-            try:
-                # Read CSV with robust parsing
-                df = pd.read_csv(uploaded_file, skipinitialspace=True, quoting=csv.QUOTE_ALL)
-                if df.empty:
-                    st.error("Uploaded CSV is empty. Please upload a valid CSV file.")
-                    st.session_state.uploader_key += 1
-                    st.rerun()
+    if uploaded_file:
+        try:
+            # Read CSV with robust parsing and converter for utme_score
+            df = pd.read_csv(
+                uploaded_file,
+                skipinitialspace=True,
+                quoting=csv.QUOTE_ALL,
+                converters={'utme_score': lambda x: pd.to_numeric(x, errors='coerce')}
+            )
+            if df.empty:
+                st.error("Uploaded CSV is empty. Please upload a valid CSV file.")
+                st.session_state.uploader_key += 1
+                st.rerun()
 
-                # Log the first few rows for debugging
-                logger.info("CSV head:\n%s", df.head().to_string())
+            # Log the first few rows for debugging
+            logger.info("CSV head:\n%s", df.head().to_string())
 
-                # Define required and optional columns
-                required_columns = [
-                    'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
-                    'interests', 'learning_style', 'state_of_origin', 'gender', 'english_language_grade'
+            # Define required and optional columns
+            required_columns = [
+                'student_id', 'name', 'utme_score', 'preferred_course', 'utme_subjects',
+                'interests', 'learning_style', 'state_of_origin', 'gender', 'english_language_grade'
+            ]
+            optional_columns = [
+                'mathematics_grade', 'physics_grade', 'chemistry_grade', 'biology_grade',
+                'economics_grade', 'geography_grade', 'agricultural_science_grade', 'technical_drawing_grade'
+            ]
+
+            # Check for required columns
+            if not all(col in df.columns for col in required_columns):
+                missing_cols = [col for col in required_columns if col not in df.columns]
+                st.error(f"Missing required columns: {', '.join(missing_cols)}")
+                st.session_state.uploader_key += 1
+                st.rerun()
+
+            # Add missing optional columns with default 0
+            for col in optional_columns:
+                if col not in df.columns:
+                    df[col] = 0
+
+            # Fill NaN in utme_score with -1 to mark invalid rows
+            df['utme_score'] = df['utme_score'].fillna(-1)
+
+            # Identify rows with non-numeric or invalid utme_score
+            invalid_utme_rows = df[
+                (df['utme_score'].isna()) |
+                (df['utme_score'] < 0) |
+                (df['utme_score'] > 400)
+            ]
+            if not invalid_utme_rows.empty:
+                st.warning("Some rows have invalid UTME scores (non-numeric, missing, or out of range 0–400). These will be reported in the invalid rows output.")
+                invalid_utme_df = invalid_utme_rows[['student_id', 'name', 'utme_score']].copy()
+                invalid_utme_df['error'] = invalid_utme_df['utme_score'].apply(
+                    lambda x: "Non-numeric or missing" if pd.isna(x) or x == -1 else "Out of range (0–400)"
+                )
+                st.subheader("Rows with Invalid UTME Scores")
+                st.dataframe(
+                    invalid_utme_df,
+                    use_container_width=True,
+                    column_config={
+                        'student_id': "Student ID",
+                        'name': "Name",
+                        'utme_score': "UTME Score",
+                        'error': "Error Message"
+                    }
+                )
+
+            # Filter out invalid rows for processing
+            valid_df = df[
+                (~df['utme_score'].isna()) &
+                (df['utme_score'] >= 0) &
+                (df['utme_score'] <= 400)
+            ].copy()
+
+            if valid_df.empty:
+                st.error("No valid rows to process after filtering invalid UTME scores.")
+                invalid_rows = [
+                    {"row": idx + 2, "student_id": row['student_id'], "error": "Invalid UTME score"}
+                    for idx, row in invalid_utme_rows.iterrows()
                 ]
-                optional_columns = [
-                    'mathematics_grade', 'physics_grade', 'chemistry_grade', 'biology_grade',
-                    'economics_grade', 'geography_grade', 'agricultural_science_grade', 'technical_drawing_grade'
-                ]
-
-                # Check for required columns
-                if not all(col in df.columns for col in required_columns):
-                    missing_cols = [col for col in required_columns if col not in df.columns]
-                    st.error(f"Missing required columns: {', '.join(missing_cols)}")
-                    st.session_state.uploader_key += 1
-                    st.rerun()
-
-                # Add missing optional columns with default 0
-                for col in optional_columns:
-                    if col not in df.columns:
-                        df[col] = 0
-
-                # Convert utme_subjects and interests to lists
-                df['utme_subjects'] = df['utme_subjects'].apply(
-                    lambda x: x.split(',') if isinstance(x, str) and x.strip() else []
+                invalid_csv_buffer = io.StringIO()
+                pd.DataFrame(invalid_rows).to_csv(invalid_csv_buffer, index=False)
+                st.download_button(
+                    label="Download Invalid Rows Report",
+                    data=invalid_csv_buffer.getvalue(),
+                    file_name="invalid_rows.csv",
+                    mime="text/csv",
+                    key="invalid_rows_download_initial"
                 )
-                df['interests'] = df['interests'].apply(
-                    lambda x: x.split(',') if isinstance(x, str) and x.strip() else []
+                st.session_state.uploader_key += 1
+                st.rerun()
+
+            # Convert utme_subjects and interests to lists
+            valid_df['utme_subjects'] = valid_df['utme_subjects'].apply(
+                lambda x: x.split(',') if isinstance(x, str) and x.strip() else []
+            )
+            valid_df['interests'] = valid_df['interests'].apply(
+                lambda x: x.split(',') if isinstance(x, str) and x.strip() else []
+            )
+
+            # Convert O'Level grades to numeric scores (A1=6, B2=5, B3=4, C4=3, C5=2, C6=1)
+            for col in optional_columns + ['english_language_grade']:
+                if col in valid_df.columns:
+                    valid_df[col] = valid_df[col].apply(lambda x: grade_map.get(str(x).strip(), 0)).astype(int)
+
+            # Additional validation for required fields
+            invalid_rows = []
+            for idx, row in valid_df.iterrows():
+                student_id = row.get('student_id', 'Unknown')
+                if pd.isna(row['student_id']) or not str(row['student_id']).strip():
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid student_id"})
+                elif pd.isna(row['name']) or not str(row['name']).strip():
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Missing or invalid name"})
+                elif len(row['utme_subjects']) != 4 or "English Language" not in row['utme_subjects']:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Must have exactly 4 UTME subjects including English Language"})
+                elif row['preferred_course'] not in course_names:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid preferred course"})
+                elif row['state_of_origin'] not in NIGERIAN_STATES:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid state of origin"})
+                elif row['gender'] not in ["Male", "Female"]:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid gender"})
+                elif row['learning_style'] not in learning_styles:
+                    invalid_rows.append({"row": idx + 2, "student_id": student_id, "error": "Invalid learning style"})
+
+            # Filter out rows with validation errors
+            invalid_indices = [r['row'] - 2 for r in invalid_rows]
+            valid_df = valid_df[~valid_df.index.isin(invalid_indices)]
+
+            if valid_df.empty:
+                st.error("No valid rows to process after validation checks.")
+                invalid_csv_buffer = io.StringIO()
+                pd.DataFrame(invalid_rows).to_csv(invalid_csv_buffer, index=False)
+                st.download_button(
+                    label="Download Invalid Rows Report",
+                    data=invalid_csv_buffer.getvalue(),
+                    file_name="invalid_rows.csv",
+                    mime="text/csv",
+                    key="invalid_rows_download_validation"
+                )
+                st.session_state.uploader_key += 1
+                st.rerun()
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            async def update_progress(progress):
+                progress_bar.progress(min(1.0, progress))
+                status_text.text(f"Processing: {int(progress * 100)}% complete")
+
+            # Process valid CSV applications
+            result = await process_with_timeout(
+                process_csv_applications(valid_df, course_capacities, jamb_data, neco_data, update_progress),
+                timeout=300
+            )
+
+            # Ensure result is a tuple
+            if not isinstance(result, tuple) or len(result) != 3:
+                logger.error("process_csv_applications returned invalid result: %s", result)
+                st.error("Processing failed: Invalid return type from process_csv_applications.")
+                st.session_state.uploader_key += 1
+                st.rerun()
+
+            admission_results, eligible_courses_df, processing_invalid_rows = result
+            # Combine invalid rows from preprocessing and processing
+            invalid_rows.extend(processing_invalid_rows)
+
+            # Initialize session state
+            st.session_state.batch_results = admission_results or []
+            st.session_state.eligible_courses_df = eligible_courses_df if not eligible_courses_df.empty else pd.DataFrame()
+            st.session_state.invalid_rows = invalid_rows or []
+
+            if admission_results:
+                st.success(f"Processed {len(admission_results)} applications successfully!")
+                detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(
+                    admission_results, valid_df, course_capacities
                 )
 
-                # Convert O'Level grades to numeric scores (A1=6, B2=5, B3=4, C4=3, C5=2, C6=1)
-                for col in optional_columns + ['english_language_grade']:
-                    if col in df.columns:
-                        df[col] = df[col].apply(lambda x: grade_map.get(str(x).strip(), 0)).astype(int)
+                st.subheader("Summary Statistics")
+                for key, value in summary_stats.items():
+                    st.write(f"**{key}**: {value:.2f}%")
 
-                # Validate data types and required fields
-                if not pd.api.types.is_numeric_dtype(df['utme_score']):
-                    st.error("UTME score must be numeric.")
-                    st.session_state.uploader_key += 1
-                    st.rerun()
-                if df['utme_score'].isna().any() or (df['utme_score'] < 0).any() or (df['utme_score'] > 400).any():
-                    st.error("UTME score contains invalid or missing values.")
-                    st.session_state.uploader_key += 1
-                    st.rerun()
-                if df['student_id'].isna().any() or df['name'].isna().any():
-                    st.error("Student ID or Name contains missing values.")
-                    st.session_state.uploader_key += 1
-                    st.rerun()
-
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                async def update_progress(progress):
-                    progress_bar.progress(min(1.0, progress))
-                    status_text.text(f"Processing: {int(progress * 100)}% complete")
-
-                # Process CSV applications
-                result = await process_with_timeout(
-                    process_csv_applications(df, course_capacities, jamb_data, neco_data, update_progress),
-                    timeout=300
+                st.subheader("Course Breakdown")
+                st.dataframe(
+                    course_breakdown,
+                    use_container_width=True,
+                    column_config={
+                        'admitted_course': "Course",
+                        'Students_Admitted': "Students Admitted",
+                        'Avg_Score': st.column_config.NumberColumn("Average Score", format="%.2f"),
+                        'Min_Score': st.column_config.NumberColumn("Min Score", format="%.2f"),
+                        'Max_Score': st.column_config.NumberColumn("Max Score", format="%.2f"),
+                        'Capacity': "Capacity",
+                        'Utilization_Rate': st.column_config.NumberColumn("Utilization Rate", format="%.2f%")
+                    }
                 )
 
-                # Ensure result is a tuple
-                if not isinstance(result, tuple) or len(result) != 3:
-                    logger.error("process_csv_applications returned invalid result: %s", result)
-                    st.error("Processing failed: Invalid return type from process_csv_applications.")
-                    st.session_state.uploader_key += 1
-                    st.rerun()
+                st.subheader("Detailed Results")
+                st.dataframe(
+                    detailed_results,
+                    use_container_width=True,
+                    column_config={
+                        'student_id': "Student ID",
+                        'name': "Name",
+                        'admitted_course': "Admitted Course",
+                        'status': "Status",
+                        'admission_type': "Admission Type",
+                        'score': st.column_config.NumberColumn("Score", format="%.2f"),
+                        'rank': "Rank",
+                        'reason': "Reason",
+                        'original_preference': "Original Preference",
+                        'recommendation_reason': "Recommendation Reason",
+                        'available_alternatives': "Available Alternatives",
+                        'suggested_alternatives': "Suggested Alternatives"
+                    }
+                )
 
-                admission_results, eligible_courses_df, invalid_rows = result
+                # Download button for detailed results
+                csv_buffer = io.StringIO()
+                detailed_results.to_csv(csv_buffer, index=False)
+                st.download_button(
+                    label="Download Detailed Results",
+                    data=csv_buffer.getvalue(),
+                    file_name="batch_admission_results.csv",
+                    mime="text/csv",
+                    key="detailed_results_download"
+                )
 
-                # Initialize session state
-                st.session_state.batch_results = admission_results or []
-                st.session_state.eligible_courses_df = eligible_courses_df if not eligible_courses_df.empty else pd.DataFrame()
-                st.session_state.invalid_rows = invalid_rows or []
-
-                if admission_results:
-                    st.success(f"Processed {len(admission_results)} applications successfully!")
-                    detailed_results, summary_stats, course_breakdown = create_comprehensive_admission_report(
-                        admission_results, df, course_capacities
-                    )
-
-                    st.subheader("Summary Statistics")
-                    for key, value in summary_stats.items():
-                        st.write(f"**{key}**: {value:.2f}%")
-
-                    st.subheader("Course Breakdown")
+                if not eligible_courses_df.empty:
+                    st.subheader("Eligible Courses for All Applicants")
                     st.dataframe(
-                        course_breakdown,
-                        use_container_width=True,
-                        column_config={
-                            'admitted_course': "Course",
-                            'Students_Admitted': "Students Admitted",
-                            'Avg_Score': st.column_config.NumberColumn("Average Score", format="%.2f"),
-                            'Min_Score': st.column_config.NumberColumn("Min Score", format="%.2f"),
-                            'Max_Score': st.column_config.NumberColumn("Max Score", format="%.2f"),
-                            'Capacity': "Capacity",
-                            'Utilization_Rate': st.column_config.NumberColumn("Utilization Rate", format="%.2f%")
-                        }
-                    )
-
-                    st.subheader("Detailed Results")
-                    st.dataframe(
-                        detailed_results,
+                        eligible_courses_df,
                         use_container_width=True,
                         column_config={
                             'student_id': "Student ID",
                             'name': "Name",
-                            'admitted_course': "Admitted Course",
-                            'status': "Status",
-                            'admission_type': "Admission Type",
+                            'course': "Course",
                             'score': st.column_config.NumberColumn("Score", format="%.2f"),
-                            'rank': "Rank",
-                            'reason': "Reason",
-                            'original_preference': "Original Preference",
-                            'recommendation_reason': "Recommendation Reason",
-                            'available_alternatives': "Available Alternatives",
-                            'suggested_alternatives': "Suggested Alternatives"
+                            'interest_score': st.column_config.NumberColumn("Interest Score", format="%.2f"),
+                            'learning_style_score': st.column_config.NumberColumn("Learning Style Score", format="%.2f"),
+                            'diversity_score': st.column_config.NumberColumn("Diversity Score", format="%.2f"),
+                            'olevel_pass_rate': st.column_config.NumberColumn("O'Level Pass Rate", format="%.2f")
                         }
                     )
-
-                    # Download button for detailed results
-                    csv_buffer = io.StringIO()
-                    detailed_results.to_csv(csv_buffer, index=False)
+                    eligible_csv_buffer = io.StringIO()
+                    eligible_courses_df.to_csv(eligible_csv_buffer, index=False)
                     st.download_button(
-                        label="Download Detailed Results",
-                        data=csv_buffer.getvalue(),
-                        file_name="batch_admission_results.csv",
+                        label="Download Eligible Courses",
+                        data=eligible_csv_buffer.getvalue(),
+                        file_name="eligible_courses.csv",
                         mime="text/csv",
-                        key="detailed_results_download"
+                        key="eligible_courses_download"
                     )
 
-                    if not eligible_courses_df.empty:
-                        st.subheader("Eligible Courses for All Applicants")
-                        st.dataframe(
-                            eligible_courses_df,
-                            use_container_width=True,
-                            column_config={
-                                'student_id': "Student ID",
-                                'name': "Name",
-                                'course': "Course",
-                                'score': st.column_config.NumberColumn("Score", format="%.2f"),
-                                'interest_score': st.column_config.NumberColumn("Interest Score", format="%.2f"),
-                                'learning_style_score': st.column_config.NumberColumn("Learning Style Score", format="%.2f"),
-                                'diversity_score': st.column_config.NumberColumn("Diversity Score", format="%.2f"),
-                                'olevel_pass_rate': st.column_config.NumberColumn("O'Level Pass Rate", format="%.2f")
-                            }
-                        )
-                        eligible_csv_buffer = io.StringIO()
-                        eligible_courses_df.to_csv(eligible_csv_buffer, index=False)
-                        st.download_button(
-                            label="Download Eligible Courses",
-                            data=eligible_csv_buffer.getvalue(),
-                            file_name="eligible_courses.csv",
-                            mime="text/csv",
-                            key="eligible_courses_download"
-                        )
+                if invalid_rows:
+                    st.subheader("Invalid Rows")
+                    invalid_df = pd.DataFrame(invalid_rows)
+                    st.dataframe(
+                        invalid_df,
+                        use_container_width=True,
+                        column_config={
+                            'row': "Row Number",
+                            'student_id': "Student ID",
+                            'error': "Error Message"
+                        }
+                    )
+                    invalid_csv_buffer = io.StringIO()
+                    invalid_df.to_csv(invalid_csv_buffer, index=False)
+                    st.download_button(
+                        label="Download Invalid Rows Report",
+                        data=invalid_csv_buffer.getvalue(),
+                        file_name="invalid_rows.csv",
+                        mime="text/csv",
+                        key="invalid_rows_download"
+                    )
 
-                    if invalid_rows:
-                        st.subheader("Invalid Rows")
-                        invalid_df = pd.DataFrame(invalid_rows)
-                        st.dataframe(
-                            invalid_df,
-                            use_container_width=True,
-                            column_config={
-                                'row': "Row Number",
-                                'student_id': "Student ID",
-                                'error': "Error Message"
-                            }
-                        )
-                        invalid_csv_buffer = io.StringIO()
-                        invalid_df.to_csv(invalid_csv_buffer, index=False)
-                        st.download_button(
-                            label="Download Invalid Rows Report",
-                            data=invalid_csv_buffer.getvalue(),
-                            file_name="invalid_rows.csv",
-                            mime="text/csv",
-                            key="invalid_rows_download"
-                        )
+            else:
+                st.error("No valid applications processed. Check the invalid rows report.")
+                if invalid_rows:
+                    invalid_df = pd.DataFrame(invalid_rows)
+                    st.dataframe(
+                        invalid_df,
+                        use_container_width=True,
+                        column_config={
+                            'row': "Row Number",
+                            'student_id': "Student ID",
+                            'error': "Error Message"
+                        }
+                    )
+                    invalid_csv_buffer = io.StringIO()
+                    invalid_df.to_csv(invalid_csv_buffer, index=False)
+                    st.download_button(
+                        label="Download Invalid Rows Report",
+                        data=invalid_csv_buffer.getvalue(),
+                        file_name="invalid_rows.csv",
+                        mime="text/csv",
+                        key="invalid_rows_download_2"
+                    )
 
-                else:
-                    st.error("No valid applications processed. Check the invalid rows report.")
-                    if invalid_rows:
-                        invalid_df = pd.DataFrame(invalid_rows)
-                        st.dataframe(
-                            invalid_df,
-                            use_container_width=True,
-                            column_config={
-                                'row': "Row Number",
-                                'student_id': "Student ID",
-                                'error': "Error Message"
-                            }
-                        )
-                        invalid_csv_buffer = io.StringIO()
-                        invalid_df.to_csv(invalid_csv_buffer, index=False)
-                        st.download_button(
-                            label="Download Invalid Rows Report",
-                            data=invalid_csv_buffer.getvalue(),
-                            file_name="invalid_rows.csv",
-                            mime="text/csv",
-                            key="invalid_rows_download_2"
-                        )
+            st.session_state.uploader_key += 1
+            st.rerun()
 
-                st.session_state.uploader_key += 1
-                st.rerun()
-
-            except Exception as e:
-                logger.error("Error processing CSV: %s", str(e))
-                st.error(f"Error processing CSV: {str(e)}")
-                st.session_state.uploader_key += 1
-                st.rerun()
+        except Exception as e:
+            logger.error("Error processing CSV: %s", str(e))
+            st.error(f"Error processing CSV: {str(e)}")
+            st.session_state.uploader_key += 1
+            st.rerun()
 
     with tab3:
         st.header("Analytics & Insights")
