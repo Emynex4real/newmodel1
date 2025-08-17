@@ -66,7 +66,16 @@ if 'invalid_rows' not in st.session_state:
 def load_jamb_data():
     return pd.DataFrame({
         'course': course_names,
-        'faculty': ['Engineering'] * 5 + ['Science'] * 8 + ['Agriculture'] * 5 + ['Environmental Sciences'] * 6 + ['Technology'] * 7 + ['Management Sciences'] * 4 + ['Environmental Sciences'] * 3 + ['Science'] * 2,
+        'faculty': (
+            ['Engineering'] * 5 + 
+            ['Science'] * 8 + 
+            ['Agriculture'] * 5 + 
+            ['Environmental Sciences'] * 6 + 
+            ['Technology'] * 7 + 
+            ['Management Sciences'] * 9 +  # Includes Accounting Technology to Economics
+            ['Environmental Sciences'] * 5 +  # Includes Building Technology, Remote Sensing
+            ['Science'] * 5  # Includes Bioinformatics, Biotechnology, Data Science
+        ),
         'total_2017': np.random.randint(100, 1000, size=len(course_names)),
         'total_2018': np.random.randint(100, 1000, size=len(course_names))
     })
@@ -82,18 +91,17 @@ def get_course_requirements():
     requirements = {}
     for course in course_names:
         faculty = 'Engineering' if course in course_names[:5] else \
-                 'Science' if course in course_names[5:13] else \
+                 'Science' if course in course_names[5:13] or course in course_names[47:50] else \
                  'Agriculture' if course in course_names[13:18] else \
-                 'Environmental Sciences' if course in course_names[18:24] else \
+                 'Environmental Sciences' if course in course_names[18:24] or course in course_names[45:47] else \
                  'Technology' if course in course_names[24:31] else \
-                 'Management Sciences' if course in course_names[31:35] else \
-                 'Environmental Sciences' if course in course_names[35:38] else \
-                 'Science'
-        required_subjects = ["English Language", "Mathematics", "Physics", "Chemistry"] if 'Engineering' in course or 'Science' in course else \
-                           ["English Language", "Mathematics", "Biology", "Agricultural Science"] if 'Agriculture' in course else \
-                           ["English Language", "Mathematics", "Economics", "Geography"] if 'Management Sciences' in course else \
+                 'Management Sciences' if course in course_names[31:35] or course in course_names[40:45] else \
+                 'Unknown'  # Fallback, should not occur
+        required_subjects = ["English Language", "Mathematics", "Physics", "Chemistry"] if 'Engineering' in faculty or 'Science' in faculty else \
+                           ["English Language", "Mathematics", "Biology", "Agricultural Science"] if 'Agriculture' in faculty else \
+                           ["English Language", "Mathematics", "Economics", "Geography"] if 'Management Sciences' in faculty else \
                            ["English Language", "Mathematics", "Geography", "Technical Drawing"]
-        min_utme = 180 if 'Science' in course else 200
+        min_utme = 180 if 'Science' in faculty else 200
         min_olevel = {'English Language': 'C6', 'Mathematics': 'C6'}
         requirements[course] = {
             'faculty': faculty,
@@ -585,13 +593,14 @@ def main():
                 status_text = st.empty()
                 
                 async def update_progress(progress):
-                    progress_bar.progress(min(1.0, progress))  # Ensure progress doesn't exceed 1.0
+                    progress_bar.progress(min(1.0, progress))
                     status_text.text(f"Processing: {int(progress * 100)}% complete")
                 
-                admission_results, eligible_courses_df, invalid_rows = asyncio.run(process_with_timeout(
+                admission_results, eligible_courses_df, invalid_rows = await process_with_timeout(
                     process_csv_applications(df, course_capacities, jamb_data, neco_data, update_progress),
                     timeout=300
-                ))                
+                )
+                
                 st.session_state.batch_results = admission_results
                 st.session_state.eligible_courses_df = eligible_courses_df
                 st.session_state.invalid_rows = invalid_rows
@@ -783,7 +792,7 @@ def main():
             st.warning("No admission results available for visualization.")
         
         st.subheader("Capacity Optimization Suggestions")
-        optimization_df = pd.DataFrame([
+        utilization_df = pd.DataFrame([
             {
                 'Course': course,
                 'Current Capacity': data['current_capacity'],
@@ -791,9 +800,9 @@ def main():
                 'Priority': data['priority']
             } for course, data in capacity_optimization.items()
         ])
-        if not optimization_df.empty:
+        if not utilization_df.empty:
             st.dataframe(
-                optimization_df,
+                utilization_df,
                 use_container_width=True,
                 column_config={
                     'Course': "Course",
@@ -851,4 +860,4 @@ async def main_async():
     main()
 
 if __name__ == "__main__":
-    asyncio.run(main_async()) 
+    asyncio.run(main_async())
