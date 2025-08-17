@@ -232,7 +232,7 @@ neco_data = load_neco_data()
 course_capacities = {course: max(50, int(jamb_data[jamb_data['course'] == course]['total_2017'].sum() / 10)) for course in course_names}
 ELIGIBILITY_MODEL, LABEL_ENCODER = train_eligibility_model()
 
-def main():
+async def main():
     st.set_page_config(page_title="FUTA Intelligent Admission Management System", layout="wide")
     st.title("FUTA Intelligent Admission Management System")
     st.markdown("Welcome to the FUTA Intelligent Admission Management System. Use the tabs below to predict admissions, process batch applications, view analytics, or access help.")
@@ -792,7 +792,7 @@ def main():
             st.warning("No admission results available for visualization.")
         
         st.subheader("Capacity Optimization Suggestions")
-        utilization_df = pd.DataFrame([
+        optimization_df = pd.DataFrame([
             {
                 'Course': course,
                 'Current Capacity': data['current_capacity'],
@@ -800,9 +800,9 @@ def main():
                 'Priority': data['priority']
             } for course, data in capacity_optimization.items()
         ])
-        if not utilization_df.empty:
+        if not optimization_df.empty:
             st.dataframe(
-                utilization_df,
+                optimization_df,
                 use_container_width=True,
                 column_config={
                     'Course': "Course",
@@ -857,7 +857,7 @@ def main():
         """)
 
 async def main_async():
-    main()
+    await main()
 
 if __name__ == "__main__":
     asyncio.run(main_async())
